@@ -1,28 +1,26 @@
-"""
-
-Path planning Sample Code with Randomized Rapidly-Exploring Random Trees (RRT)
-
-author: AtsushiSakai(@Atsushi_twi)
-
-"""
-
-import math
 import random
+import math
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+from shape import Circle, Rectangle  # Import Shape classes
+from obstacle import StaticObstacle, DynamicObstacle # Import obstacle classes
+from ray_tracing import RayTracing # Import RayTracing
+from waiting_rule import WaitingRule # Import WaitingRule
+
+
 show_animation = True
 
 
-class RRT:
+class RRTPlanner:
     """
-    Class for RRT planning
+    Class for RRT planning, integrating Ray Tracing and Waiting Rule.
     """
 
     class Node:
         """
-        RRT Node
+        RRT Node class.
         """
 
         def __init__(self, x, y):
@@ -33,7 +31,9 @@ class RRT:
             self.parent = None
 
     class AreaBounds:
-
+        """
+        Class to define area bounds.
+        """
         def __init__(self, area):
             self.xmin = float(area[0])
             self.xmax = float(area[1])
@@ -52,16 +52,20 @@ class RRT:
                  max_iter=500,
                  play_area=None,
                  robot_radius=0.0,
+                 ray_tracer=None, # RayTracing object
+                 waiting_rule=None # WaitingRule object
                  ):
         """
         Setting Parameter
 
         start:Start Position [x,y]
         goal:Goal Position [x,y]
-        obstacleList:obstacle Positions [[x,y,size],...]
+        obstacleList:obstacle Positions [Obstacle objects]
         randArea:Random Sampling Area [min,max]
         play_area:stay inside this area [xmin,xmax,ymin,ymax]
         robot_radius: robot body modeled as circle with given radius
+        ray_tracer: RayTracing object for static obstacle avoidance
+        waiting_rule: WaitingRule object for dynamic obstacle avoidance
 
         """
         self.start = self.Node(start[0], start[1])
@@ -79,16 +83,18 @@ class RRT:
         self.obstacle_list = obstacle_list
         self.node_list = []
         self.robot_radius = robot_radius
+        self.ray_tracer = ray_tracer # RayTracing object
+        self.waiting_rule = waiting_rule # WaitingRule object
 
     def planning(self, animation=True):
         """
         rrt path planning
-
-        animation: flag for animation on or off
         """
-
         self.node_list = [self.start]
         for i in range(self.max_iter):
+            # Update dynamic obstacles' positions
+            self.update_dynamic_obstacles(dt=0.1)  # dt is the time step, adjust as needed
+
             rnd_node = self.get_random_node()
             nearest_ind = self.get_nearest_node_index(self.node_list, rnd_node)
             nearest_node = self.node_list[nearest_ind]
@@ -96,19 +102,15 @@ class RRT:
             new_node = self.steer(nearest_node, rnd_node, self.expand_dis)
 
             if self.check_if_outside_play_area(new_node, self.play_area) and \
-               self.check_collision(
-                   new_node, self.obstacle_list, self.robot_radius):
+            self.check_collision_free(new_node, self.obstacle_list, new_node):
                 self.node_list.append(new_node)
 
             if animation and i % 5 == 0:
                 self.draw_graph(rnd_node)
 
-            if self.calc_dist_to_goal(self.node_list[-1].x,
-                                      self.node_list[-1].y) <= self.expand_dis:
-                final_node = self.steer(self.node_list[-1], self.end,
-                                        self.expand_dis)
-                if self.check_collision(
-                        final_node, self.obstacle_list, self.robot_radius):
+            if self.calc_dist_to_goal(self.node_list[-1].x, self.node_list[-1].y) <= self.expand_dis:
+                final_node = self.steer(self.node_list[-1], self.end, self.expand_dis)
+                if self.check_collision_free(final_node, self.obstacle_list, final_node):
                     return self.generate_final_course(len(self.node_list) - 1)
 
             if animation and i % 5:
@@ -117,7 +119,9 @@ class RRT:
         return None  # cannot find path
 
     def steer(self, from_node, to_node, extend_length=float("inf")):
-
+        """
+        Steer from from_node towards to_node.
+        """
         new_node = self.Node(from_node.x, from_node.y)
         d, theta = self.calc_distance_and_angle(new_node, to_node)
 
@@ -147,6 +151,9 @@ class RRT:
         return new_node
 
     def generate_final_course(self, goal_ind):
+        """
+        Generate final path from goal node to start node.
+        """
         path = [[self.end.x, self.end.y]]
         node = self.node_list[goal_ind]
         while node.parent is not None:
@@ -157,11 +164,17 @@ class RRT:
         return path
 
     def calc_dist_to_goal(self, x, y):
+        """
+        Calculate distance to goal position.
+        """
         dx = x - self.end.x
         dy = y - self.end.y
         return math.hypot(dx, dy)
 
     def get_random_node(self):
+        """
+        Get random node for RRT expansion.
+        """
         if random.randint(0, 100) > self.goal_sample_rate:
             rnd = self.Node(
                 random.uniform(self.min_rand, self.max_rand),
@@ -171,6 +184,9 @@ class RRT:
         return rnd
 
     def draw_graph(self, rnd=None):
+        """
+        Draw RRT graph for animation.
+        """
         plt.clf()
         # for stopping simulation with the esc key.
         plt.gcf().canvas.mpl_connect(
@@ -179,13 +195,20 @@ class RRT:
         if rnd is not None:
             plt.plot(rnd.x, rnd.y, "^k")
             if self.robot_radius > 0.0:
-                self.plot_circle(rnd.x, rnd.y, self.robot_radius, '-r')
+                self.plot_circle(rnd.x, rnd.y, self.robot_radius, color='red') # Keyword argument for color
         for node in self.node_list:
             if node.parent:
                 plt.plot(node.path_x, node.path_y, "-g")
 
-        for (ox, oy, size) in self.obstacle_list:
-            self.plot_circle(ox, oy, size)
+        for obstacle in self.obstacle_list: # Iterate through Obstacle objects
+            if isinstance(obstacle, StaticObstacle):
+                if isinstance(obstacle.shape, Circle):
+                    self.plot_circle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.radius)
+                elif isinstance(obstacle.shape, Rectangle):
+                    self.plot_rectangle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.width, obstacle.shape.height)
+            elif isinstance(obstacle, DynamicObstacle): # Handle dynamic obstacles if needed
+                if isinstance(obstacle.shape, Circle):
+                    self.plot_circle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.radius, color='orange') # Keyword argument for color, orange for dynamic
 
         if self.play_area is not None:
             plt.plot([self.play_area.xmin, self.play_area.xmax,
@@ -204,15 +227,24 @@ class RRT:
         plt.pause(0.01)
 
     @staticmethod
-    def plot_circle(x, y, size, color="-b"):  # pragma: no cover
+    def plot_circle(x, y, size, color="blue"):  # pragma: no cover
+        """Plot circle for visualization."""
         deg = list(range(0, 360, 5))
         deg.append(0)
         xl = [x + size * math.cos(np.deg2rad(d)) for d in deg]
         yl = [y + size * math.sin(np.deg2rad(d)) for d in deg]
-        plt.plot(xl, yl, color)
+        plt.plot(xl, yl, color=color) # Use color as keyword argument
+
+    @staticmethod
+    def plot_rectangle(x, y, width, height, color="blue"):
+        """Plot rectangle for visualization."""
+        x_coords = [x, x + width, x + width, x, x]
+        y_coords = [y, y, y + height, y + height, y]
+        plt.plot(x_coords, y_coords, color=color) # Use color as keyword argument
 
     @staticmethod
     def get_nearest_node_index(node_list, rnd_node):
+        """Get nearest node index from RRT tree to random node."""
         dlist = [(node.x - rnd_node.x)**2 + (node.y - rnd_node.y)**2
                  for node in node_list]
         minind = dlist.index(min(dlist))
@@ -221,7 +253,7 @@ class RRT:
 
     @staticmethod
     def check_if_outside_play_area(node, play_area):
-
+        """Check if node is outside play area."""
         if play_area is None:
             return True  # no play_area was defined, every pos should be ok
 
@@ -231,61 +263,61 @@ class RRT:
         else:
             return True  # inside - ok
 
-    @staticmethod
-    def check_collision(node, obstacleList, robot_radius):
-
+    def check_collision_free(self, node, obstacleList, check_node):
+        """
+        Check collision-free for a new node with obstacles.
+        Integrates Ray Tracing for static and (partially) Waiting Rule for dynamic obstacles.
+        """
         if node is None:
             return False
 
-        for (ox, oy, size) in obstacleList:
-            dx_list = [ox - x for x in node.path_x]
-            dy_list = [oy - y for y in node.path_y]
-            d_list = [dx * dx + dy * dy for (dx, dy) in zip(dx_list, dy_list)]
+        for obstacle in obstacleList:
+            if obstacle.get_min_distance(node.x, node.y) <= self.robot_radius: # Basic collision check using min_distance
+                return False
 
-            if min(d_list) <= (size+robot_radius)**2:
-                return False  # collision
+            if isinstance(obstacle, StaticObstacle) and self.ray_tracer: # Ray Tracing for static obstacles
+                parent_node = node.parent
+                if parent_node:
+                    if self.ray_tracer.check_ray_collision((parent_node.x, parent_node.y), (node.x, node.y)):
+                        return False # Ray between parent and new node intersects static obstacle
 
-        return True  # safe
+            elif isinstance(obstacle, DynamicObstacle) and self.waiting_rule: # Dynamic obstacle handling (Waiting Rule - IMPROVEMENT NEEDED)
+                # **WAITING RULE INTEGRATION NEEDED HERE - CURRENTLY JUST A PLACEHOLDER**
+                # Placeholder: Simple distance check for dynamic obstacles - REPLACE WITH WAITING RULE LOGIC
+                safe_distance_dynamic = 2.0 # Example safe distance for dynamic obstacles
+                if not self.waiting_rule.is_safe_distance((node.x, node.y), obstacle, safe_distance_dynamic):
+                    waiting_time = self.waiting_rule.calculate_waiting_time( # Calculate waiting time (WIP)
+                        robot_pos=(node.x, node.y),
+                        robot_orientation=self.get_node_orientation(check_node), # Pass check_node for orientation
+                        dynamic_obstacle=obstacle
+                    )
+                    if waiting_time > 0:
+                        print(f"Dynamic obstacle nearby, waiting needed: {waiting_time:.2f} s (not actually waiting in code)")
+                        return False # Treat as collision if waiting is needed (placeholder)
+                        # **IMPLEMENT ACTUAL WAITING OR PATH ADJUSTMENT BASED ON WAITING TIME**
+
+        return True  # Safe, no collision
+
+    def get_node_orientation(self, node):
+        """Get node orientation based on parent node."""
+        if node.parent:
+            return math.atan2(node.y - node.parent.y, node.x - node.parent.x)
+        return 0.0 # Default orientation if no parent
 
     @staticmethod
     def calc_distance_and_angle(from_node, to_node):
+        """Calculate distance and angle between two nodes."""
         dx = to_node.x - from_node.x
         dy = to_node.y - from_node.y
         d = math.hypot(dx, dy)
         theta = math.atan2(dy, dx)
         return d, theta
-
-
-def main(gx=6.0, gy=10.0):
-    print("start " + __file__)
-
-    # ====Search Path with RRT====
-    obstacleList = [(5, 5, 1), (3, 6, 2), (3, 8, 2), (3, 10, 2), (7, 5, 2),
-                    (9, 5, 2), (8, 10, 1)]  # [x, y, radius]
-    # Set Initial parameters
-    rrt = RRT(
-        start=[0, 0],
-        goal=[gx, gy],
-        rand_area=[-2, 15],
-        obstacle_list=obstacleList,
-        # play_area=[0, 10, 0, 14]
-        robot_radius=0.8
-        )
-    path = rrt.planning(animation=show_animation)
-
-    if path is None:
-        print("Cannot find path")
-    else:
-        print("found path!!")
-
-        # Draw final path
-        if show_animation:
-            rrt.draw_graph()
-            plt.plot([x for (x, y) in path], [y for (x, y) in path], '-r')
-            plt.grid(True)
-            plt.pause(0.01)  # Need for Mac
-            plt.show()
-
-
-if __name__ == '__main__':
-    main()
+    
+    def update_dynamic_obstacles(self, dt):
+        """
+        Update positions of dynamic obstacles based on their velocity and time step dt.
+        """
+        for obstacle in self.obstacle_list:
+            if isinstance(obstacle, DynamicObstacle):
+                # Update position based on velocity and time step
+                obstacle.move(dt)
