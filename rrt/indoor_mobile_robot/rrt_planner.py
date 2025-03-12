@@ -53,7 +53,8 @@ class RRTPlanner:
                  play_area=None,
                  robot_radius=0.0,
                  ray_tracer=None, # RayTracing object
-                 waiting_rule=None # WaitingRule object
+                 waiting_rule=None, # WaitingRule object
+                 random_seed=None # Random seed for reproducibility
                  ):
         """
         Setting Parameter
@@ -68,6 +69,9 @@ class RRTPlanner:
         waiting_rule: WaitingRule object for dynamic obstacle avoidance
 
         """
+        # Set random seed if provided
+        if random_seed is not None:
+            random.seed(random_seed)
         self.start = self.Node(start[0], start[1])
         self.end = self.Node(goal[0], goal[1])
         self.min_rand = rand_area[0]
@@ -85,11 +89,14 @@ class RRTPlanner:
         self.robot_radius = robot_radius
         self.ray_tracer = ray_tracer # RayTracing object
         self.waiting_rule = waiting_rule # WaitingRule object
+        self.simulation_time = 0.0  # Initialize simulation time
+        self.path_length = 0.0  # Initialize path length
 
     def planning(self, animation=True):
         """
         rrt path planning
         """
+        self.simulation_time = 0.0  # Reset simulation time
         self.node_list = [self.start]
         for i in range(self.max_iter):
             # Update dynamic obstacles' positions
@@ -150,6 +157,23 @@ class RRTPlanner:
 
         return new_node
 
+    def calc_path_length(self, path):
+        """
+        Calculate the total length of a path.
+        
+        Args:
+            path: List of [x, y] coordinates
+            
+        Returns:
+            float: Total path length
+        """
+        length = 0.0
+        for i in range(len(path) - 1):
+            dx = path[i][0] - path[i+1][0]
+            dy = path[i][1] - path[i+1][1]
+            length += math.hypot(dx, dy)
+        return length
+
     def generate_final_course(self, goal_ind):
         """
         Generate final path from goal node to start node.
@@ -160,6 +184,9 @@ class RRTPlanner:
             path.append([node.x, node.y])
             node = node.parent
         path.append([node.x, node.y])
+
+        # Calculate and store the path length
+        self.path_length = self.calc_path_length(path)
 
         return path
 
@@ -209,6 +236,8 @@ class RRTPlanner:
             elif isinstance(obstacle, DynamicObstacle): # Handle dynamic obstacles if needed
                 if isinstance(obstacle.shape, Circle):
                     self.plot_circle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.radius, color='orange') # Keyword argument for color, orange for dynamic
+                if isinstance(obstacle.shape, Rectangle):
+                    self.plot_rectangle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.width, obstacle.shape.height, color='pink')
 
         if self.play_area is not None:
             plt.plot([self.play_area.xmin, self.play_area.xmax,
@@ -221,10 +250,14 @@ class RRTPlanner:
 
         plt.plot(self.start.x, self.start.y, "xr")
         plt.plot(self.end.x, self.end.y, "xr")
+        # Add simulation time display
+        plt.text(5, 57, 
+                f"Time: {self.simulation_time:.1f}s",
+                fontsize=10, bbox=dict(facecolor='white', alpha=0.7))
         plt.axis("equal")
-        plt.axis([self.min_rand, self.max_rand, self.min_rand, self.max_rand])
+        plt.axis([self.play_area.xmin, self.play_area.xmax, self.play_area.ymin, self.play_area.ymax] if self.play_area is not None else [self.min_rand, self.max_rand, self.min_rand, self.max_rand])
         plt.grid(True)
-        plt.pause(0.01)
+        plt.pause(0.09)
 
     @staticmethod
     def plot_circle(x, y, size, color="blue"):  # pragma: no cover
@@ -317,6 +350,7 @@ class RRTPlanner:
         """
         Update positions of dynamic obstacles based on their velocity and time step dt.
         """
+        self.simulation_time += dt  # Track simulation time
         for obstacle in self.obstacle_list:
             if isinstance(obstacle, DynamicObstacle):
                 # Update position based on velocity and time step

@@ -7,7 +7,7 @@ from rrt_planner import RRTPlanner # Import RRTPlanner
 
 show_animation = True # Flag to enable/disable animation
 
-def main(gx=55.0, gy=55.0, random_seed=None):
+def main(gx=55.0, gy=55.0):
     print("start " + __file__)
 
     static_obstacles = [
@@ -61,10 +61,8 @@ def main(gx=55.0, gy=55.0, random_seed=None):
         obstacle_list=obstacle_list,
         robot_radius=0.8,
         play_area=[-5.0, 60.0, -5.0, 60.0],
-        path_resolution=1,
         ray_tracer=ray_tracer, # Pass RayTracing object
-        waiting_rule=waiting_rule, # Pass WaitingRule object
-        random_seed=random_seed,
+        waiting_rule=waiting_rule # Pass WaitingRule object
     )
     path = rrt_planner.planning(animation = show_animation)
 
@@ -76,9 +74,6 @@ def main(gx=55.0, gy=55.0, random_seed=None):
         # Draw final path
         if show_animation:
             rrt_planner.draw_graph() # Need to adjust RRTPlanner.draw_graph to draw correctly
-            # Add path length text to the figure
-            plt.text(30, 57, f"Path Length: {rrt_planner.path_length:.2f}", 
-                        bbox=dict(facecolor='white', alpha=0.7))
             plt.plot([x for (x, y) in path], [y for (x, y) in path], '-r')
             plt.grid(True)
             plt.pause(0.01)  # Need for Mac
@@ -86,5 +81,4 @@ def main(gx=55.0, gy=55.0, random_seed=None):
 
 
 if __name__ == '__main__':
-    for i in range(5, 30, 5):
-        main(random_seed=i)
+    main()
