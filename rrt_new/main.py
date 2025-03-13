@@ -30,6 +30,11 @@ def main(gx=55.0, gy=5.0, random_seed=None):
 
         # Pentagon at bottom-right (approximated with a circle)
         StaticObstacle(Circle(43, 45, 4)),
+        #drawback
+        StaticObstacle(Rectangle(50, 10, 10, 2)),
+        StaticObstacle(Rectangle(50, 0, 2, 8)),
+        StaticObstacle(Rectangle(50, 0, 10, 2)),
+
     ]
     dynamic_obstacles = [
         DynamicObstacle(Rectangle(30, 25, 10, 2), -1,-1),  # Horizontal part

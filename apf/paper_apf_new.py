@@ -369,7 +369,7 @@ def dynamic_potential_field_planning(sx, sy, gx, gy, obs: List[Obstacle], reso, 
                 plt.savefig(f"{save_dir}/frame_{frame_count:04d}.png", dpi=100)
                 frame_count += 1
                 
-            plt.pause(3)
+            plt.pause(0.01)
     
     print("Goal!!" if d < reso else f"Failed to reach goal. Final distance: {d:.2f}")
     
@@ -437,6 +437,9 @@ def main():
         
         # Pentagon at bottom-right (approximated with a circle)
         StaticObstacle(Circle(43, 45, 4)),
+        StaticObstacle(Rectangle(50, 10, 10, 2)),
+        StaticObstacle(Rectangle(50, 0, 2, 8.3)),
+        StaticObstacle(Rectangle(50, 0, 10, 2)),
         DynamicObstacle(Rectangle(30, 25, 10, 2), -1, -1),  # Horizontal part
         DynamicObstacle(Rectangle(34, 21, 2, 10), -1, -1) , # Vertical part   
   ]
@@ -446,7 +449,7 @@ def main():
   gx = AREA_WIDTH - 5.0  # goal x position [m] - điều chỉnh mục tiêu cho bản đồ lớn hơn
   gy = 5.0  # goal y position [m] - điều chỉnh mục tiêu cho bản đồ lớn hơn
   reso = 1  # potential grid size [m]
-  robot_radius = 5.0  # robot radius [m]
+  robot_radius = 0.8  # robot radius [m]
 
   if show_animation:
     plt.grid(True)
