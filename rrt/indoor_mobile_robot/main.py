@@ -1,4 +1,4 @@
-import matplotlib.pyplot as plt # If you want to plot
+import matplotlib.pyplot as plt
 from shape import Circle, Rectangle  # Import Shape classes
 from obstacle import StaticObstacle, DynamicObstacle # Import Obstacle classes
 from ray_tracing import RayTracing # Import RayTracing
@@ -7,66 +7,55 @@ from rrt_planner import RRTPlanner # Import RRTPlanner
 
 show_animation = True # Flag to enable/disable animation
 
-def main(gx=55.0, gy=55.0, random_seed=None):
+def main(gx=55.0, gy=5.0, random_seed=None):
     print("start " + __file__)
 
+    # Creating the obstacles to match the image
     static_obstacles = [
-        # Vật cản tĩnh hình tròn
-      StaticObstacle(Circle(10, 10, 3)),
-      StaticObstacle(Circle(10, 25, 4)),
-      StaticObstacle(Circle(30, 15, 3.5)),
-      StaticObstacle(Circle(45, 30, 5)),
-      StaticObstacle(Circle(50, 50, 2.5)),
-
-      # Vật cản tĩnh hình chữ nhật
-      StaticObstacle(Rectangle(20, 5, 5, 3)),
-      StaticObstacle(Rectangle(35, 20, 4, 6)),
-      StaticObstacle(Rectangle(5, 40, 6, 2)),
-      StaticObstacle(Rectangle(40, 45, 3, 7)),
+        # Top-left rectangle (tall)
+          # Top-left rectangle (short)
+        StaticObstacle(Rectangle(20, 5, 3, 5)),
+        
+        # Oval/Circle in the middle-left
+        StaticObstacle(Circle(15, 30, 4)),
+        
+        # Triangle at top-right (approximated with a rectangle)
+        StaticObstacle(Rectangle(35, 5, 7, 7)),
+        
+        # Cross/plus sign at top-right
+        StaticObstacle(Rectangle(30, 25, 10, 2)),  # Horizontal part
+        StaticObstacle(Rectangle(34, 21, 2, 10)) , # Vertical part        
+        # Hexagon at bottom-left (approximated with a circle)
+        StaticObstacle(Rectangle(8, 47, 6, 10)),
+        
+        # Pentagon at bottom-right (approximated with a circle)
+        StaticObstacle(Circle(43, 45, 4)),
     ]
     dynamic_obstacles = [
-      # Vật cản động hình tròn
-      DynamicObstacle(Circle(15, 35, 2), 1, 0),      # Di chuyển ngang
-      DynamicObstacle(Circle(25, 45, 2.5), 0, -0.5),   # Di chuyển dọc
-      DynamicObstacle(Circle(55, 10, 3), -0.8, 0.8),  # Di chuyển chéo
-
-      # Vật cản động hình chữ nhật
-      DynamicObstacle(Rectangle(35, 35, 2, 4), -0.5, 0), # Di chuyển ngang
-      DynamicObstacle(Rectangle(45, 10, 3, 2), 0, 0.7),  # Di chuyển dọc
-      DynamicObstacle(Rectangle(5, 5, 4, 3), 0.6, -0.6)   # Di chuyển chéo
+        # DynamicObstacle(Rectangle(30, 25, 10, 2), -1,-1),  # Horizontal part
+        # DynamicObstacle(Rectangle(34, 21, 2, 10), -1,-1) , 
     ]
-
-    # static_obstacles = []
-    # for data in static_obstacle_list_data:
-    #     if len(data) == 3: # Circle
-    #         static_obstacles.append(StaticObstacle(shape=Circle(x=data[0], y=data[1], radius=data[2])))
-    #     elif len(data) == 4: # Rectangle
-    #         static_obstacles.append(StaticObstacle(shape=Rectangle(x=data[0], y=data[1], width=data[2], height=data[3])))
-
-    # dynamic_obstacles = [
-    #     DynamicObstacle(shape=Circle(x=pos[0], y=pos[1], radius=radius), vx=vel[0], vy=vel[1])
-    #     for pos, vel, radius in dynamic_obstacle_list_data
-    # ]
-    obstacle_list = static_obstacles + dynamic_obstacles # Combined obstacle list
+    
+    obstacle_list = static_obstacles + dynamic_obstacles;  # No dynamic obstacles as per the image
 
     # Initialize RayTracing and WaitingRule
-    ray_tracer = RayTracing(static_obstacles) # RayTracing for static obstacles
-    waiting_rule = WaitingRule(robot_speed=1.0) # WaitingRule for dynamic obstacles
+    ray_tracer = RayTracing(static_obstacles)
+    waiting_rule = WaitingRule(robot_speed=1.0)
 
-    # Set Initial parameters
-    rrt_planner = RRTPlanner( # Use RRTPlanner instead of original RRT
-        start=[0, 0],
-        goal=[gx, gy],
+    # Set Initial parameters - start at top-left, goal at bottom-right
+    rrt_planner = RRTPlanner(
+        start=[0, 55],           # Top-left corner
+        goal=[gx, gy],          # Bottom-right corner
         rand_area=[-1, 60],
         obstacle_list=obstacle_list,
         robot_radius=0.8,
         play_area=[-5.0, 60.0, -5.0, 60.0],
         path_resolution=1,
-        ray_tracer=ray_tracer, # Pass RayTracing object
-        waiting_rule=waiting_rule, # Pass WaitingRule object
+        ray_tracer=ray_tracer,
+        waiting_rule=waiting_rule,
         random_seed=random_seed,
     )
-    path = rrt_planner.planning(animation = show_animation)
+    path = rrt_planner.planning(animation=show_animation)
 
     if path is None:
         print("Cannot find path")
@@ -75,16 +64,17 @@ def main(gx=55.0, gy=55.0, random_seed=None):
 
         # Draw final path
         if show_animation:
-            rrt_planner.draw_graph() # Need to adjust RRTPlanner.draw_graph to draw correctly
+            rrt_planner.draw_graph()
             # Add path length text to the figure
             plt.text(30, 57, f"Path Length: {rrt_planner.path_length:.2f}", 
-                        bbox=dict(facecolor='white', alpha=0.7))
+                     bbox=dict(facecolor='white', alpha=0.7))
             plt.plot([x for (x, y) in path], [y for (x, y) in path], '-r')
+            # Draw a line to show the environment division as in the image
+            plt.plot([0, 60], [30, 30], 'b-', linewidth=1)
             plt.grid(True)
-            plt.pause(0.01)  # Need for Mac
+            plt.pause(0.01)
             plt.show()
 
 
 if __name__ == '__main__':
-    for i in range(5, 30, 5):
-        main(random_seed=i)
+    main(random_seed=10)  # Using a single run with a fixed seed

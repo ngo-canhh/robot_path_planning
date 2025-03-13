@@ -257,7 +257,7 @@ class RRTPlanner:
         plt.axis("equal")
         plt.axis([self.play_area.xmin, self.play_area.xmax, self.play_area.ymin, self.play_area.ymax] if self.play_area is not None else [self.min_rand, self.max_rand, self.min_rand, self.max_rand])
         plt.grid(True)
-        plt.pause(0.09)
+        plt.pause(3)
 
     @staticmethod
     def plot_circle(x, y, size, color="blue"):  # pragma: no cover

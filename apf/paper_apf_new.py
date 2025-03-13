@@ -369,7 +369,7 @@ def dynamic_potential_field_planning(sx, sy, gx, gy, obs: List[Obstacle], reso, 
                 plt.savefig(f"{save_dir}/frame_{frame_count:04d}.png", dpi=100)
                 frame_count += 1
                 
-            plt.pause(0.01)
+            plt.pause(3)
     
     print("Goal!!" if d < reso else f"Failed to reach goal. Final distance: {d:.2f}")
     
@@ -417,34 +417,34 @@ def main():
   AREA_WIDTH = 60.0  # Tăng kích thước khu vực tìm kiếm tiềm năng
 
   obs = [
-      # Vật cản tĩnh hình tròn
-      StaticObstacle(Circle(10, 10, 3)),
-      StaticObstacle(Circle(10, 25, 4)),
-      StaticObstacle(Circle(30, 15, 3.5)),
-      StaticObstacle(Circle(45, 30, 5)),
-      StaticObstacle(Circle(50, 50, 2.5)),
-
-      # Vật cản tĩnh hình chữ nhật
-      StaticObstacle(Rectangle(20, 5, 5, 3)),
-      StaticObstacle(Rectangle(35, 20, 4, 6)),
-      StaticObstacle(Rectangle(5, 40, 6, 2)),
-      StaticObstacle(Rectangle(40, 45, 3, 7)),
-
-      # Vật cản động hình tròn
-      DynamicObstacle(Circle(15, 35, 2), 1, 0),      # Di chuyển ngang
-      DynamicObstacle(Circle(25, 45, 2.5), 0, -0.5),   # Di chuyển dọc
-      DynamicObstacle(Circle(55, 10, 3), -0.8, 0.8),  # Di chuyển chéo
-
-      # Vật cản động hình chữ nhật
-      DynamicObstacle(Rectangle(35, 35, 2, 4), -0.5, 0), # Di chuyển ngang
-      DynamicObstacle(Rectangle(45, 10, 3, 2), 0, 0.7),  # Di chuyển dọc
-      DynamicObstacle(Rectangle(5, 5, 4, 3), 0.6, -0.6)   # Di chuyển chéo
+        StaticObstacle(Rectangle(5, 15, 3, 10)),
+        
+        # Top-left rectangle (short)
+        StaticObstacle(Rectangle(20, 5, 3, 5)),
+        
+        # Oval/Circle in the middle-left
+        StaticObstacle(Circle(15, 30, 4)),
+        
+        # Triangle at top-right (approximated with a rectangle)
+        StaticObstacle(Rectangle(35, 5, 7, 7)),
+        
+        # Cross/plus sign at top-right
+        # StaticObstacle(Rectangle(30, 25, 10, 2)),  # Horizontal part
+        # StaticObstacle(Rectangle(34, 21, 2, 10)) , # Vertical part        
+        # Hexagon at bottom-left (approximated with a circle)
+        
+        StaticObstacle(Rectangle(8, 47, 6, 10)),
+        
+        # Pentagon at bottom-right (approximated with a circle)
+        StaticObstacle(Circle(43, 45, 4)),
+        DynamicObstacle(Rectangle(30, 25, 10, 2), -1, -1),  # Horizontal part
+        DynamicObstacle(Rectangle(34, 21, 2, 10), -1, -1) , # Vertical part   
   ]
 
   sx = 0.0  # start x position [m]
-  sy = 0.0  # start y position [m]
+  sy = 55.0  # start y position [m]
   gx = AREA_WIDTH - 5.0  # goal x position [m] - điều chỉnh mục tiêu cho bản đồ lớn hơn
-  gy = AREA_WIDTH - 5.0  # goal y position [m] - điều chỉnh mục tiêu cho bản đồ lớn hơn
+  gy = 5.0  # goal y position [m] - điều chỉnh mục tiêu cho bản đồ lớn hơn
   reso = 1  # potential grid size [m]
   robot_radius = 5.0  # robot radius [m]
 
