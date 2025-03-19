@@ -348,19 +348,29 @@ def dynamic_potential_field_planning(sx, sy, gx, gy, obs: List[Obstacle], reso, 
             for ob in filtered_obs:
               shape = ob.shape
               centroid = shape.get_centroid()
-                  
-              if isinstance(shape, Circle):
-                circle = plt.Circle((centroid[0], centroid[1]), shape.radius,
-                          color='k', fill=True, alpha=0.6)
-                plt.gca().add_patch(circle)
-              elif isinstance(shape, Rectangle):
-                rect = plt.Rectangle((centroid[0] - shape.width/2, centroid[1] - shape.height/2), 
-                            shape.width, shape.height, 
+
+              if isinstance(ob, StaticObstacle):    
+                if isinstance(shape, Circle):
+                    circle = plt.Circle((centroid[0], centroid[1]), shape.radius,
                             color='k', fill=True, alpha=0.6)
-                plt.gca().add_patch(rect)
+                    plt.gca().add_patch(circle)
+                elif isinstance(shape, Rectangle):
+                    rect = plt.Rectangle((centroid[0] - shape.width/2, centroid[1] - shape.height/2), 
+                                shape.width, shape.height, 
+                                color='k', fill=True, alpha=0.6)
+                    plt.gca().add_patch(rect)
               
               # Add velocity vector for dynamic obstacles
               if isinstance(ob, DynamicObstacle):
+                if isinstance(shape, Circle):
+                    circle = plt.Circle((centroid[0], centroid[1]), shape.radius,
+                            color='k', fill=True, alpha=0.6)
+                    plt.gca().add_patch(circle)
+                elif isinstance(shape, Rectangle):
+                    rect = plt.Rectangle((centroid[0] - shape.width/2, centroid[1] - shape.height/2), 
+                                shape.width, shape.height, 
+                                color='blue', fill=True, alpha=0.6)
+                    plt.gca().add_patch(rect)
                 plt.arrow(shape.get_centroid()[0], shape.get_centroid()[1], ob.vx, ob.vy, 
                       head_width=0.5, head_length=0.7, fc='r', ec='r')
             
@@ -438,8 +448,9 @@ def main():
         # Pentagon at bottom-right (approximated with a circle)
         StaticObstacle(Circle(43, 45, 4)),
         StaticObstacle(Rectangle(50, 10, 10, 2)),
-        StaticObstacle(Rectangle(50, 0, 2, 8.3)),
+        StaticObstacle(Rectangle(50, 0, 2, 8.0)),
         StaticObstacle(Rectangle(50, 0, 10, 2)),
+
         DynamicObstacle(Rectangle(30, 25, 10, 2), -1, -1),  # Horizontal part
         DynamicObstacle(Rectangle(34, 21, 2, 10), -1, -1) , # Vertical part   
   ]
