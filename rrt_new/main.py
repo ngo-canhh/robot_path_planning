@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from shape import Circle, Rectangle  # Import Shape classes
-from obstacle import StaticObstacle, DynamicObstacle # Import Obstacle classes
+from obstacle import StaticObstacle, DynamicObstacle, ObstacleDetector # Import Obstacle classes
 from ray_tracing import RayTracing # Import RayTracing
 from waiting_rule import WaitingRule # Import WaitingRule
 from rrt_planner import RRTPlanner, RRTVisualizer # Import RRTPlanner and RRTVisualizer
@@ -11,53 +11,59 @@ def main(gx=55.0, gy=5.0, random_seed=None):
     print("start " + __file__)
 
     # Creating the obstacles to match the image
-    static_obstacles = [
-        # Top-left rectangle (tall)
-          # Top-left rectangle (short)
-        StaticObstacle(Rectangle(20, 5, 3, 5)),
+    # static_obstacles = [
+    #     # Top-left rectangle (tall)
+    #       # Top-left rectangle (short)
+    #     StaticObstacle(Rectangle(20, 5, 3, 5)),
 
-        # Oval/Circle in the middle-left
-        StaticObstacle(Circle(15, 30, 4)),
+    #     # Oval/Circle in the middle-left
+    #     StaticObstacle(Circle(15, 30, 4)),
 
-        # Triangle at top-right (approximated with a rectangle)
-        StaticObstacle(Rectangle(35, 5, 7, 7)),
+    #     # Triangle at top-right (approximated with a rectangle)
+    #     StaticObstacle(Rectangle(35, 5, 7, 7)),
+    #     StaticObstacle(Rectangle(8, 47, 6, 10)),
 
-        # Cross/plus sign at top-right
-        # StaticObstacle(Rectangle(30, 25, 10, 2)),  # Horizontal part
-        # StaticObstacle(Rectangle(34, 21, 2, 10)) , # Vertical part
-        # Hexagon at bottom-left (approximated with a circle)
-        StaticObstacle(Rectangle(8, 47, 6, 10)),
+    #     StaticObstacle(Circle(43, 45, 4)),
+    #     #drawback
+    #     StaticObstacle(Rectangle(50, 10, 10, 2)),
+    #     StaticObstacle(Rectangle(50, 0, 2, 8)),
+    #     StaticObstacle(Rectangle(50, 0, 10, 2)),
 
-        # Pentagon at bottom-right (approximated with a circle)
-        StaticObstacle(Circle(43, 45, 4)),
-        #drawback
-        StaticObstacle(Rectangle(50, 10, 10, 2)),
-        StaticObstacle(Rectangle(50, 0, 2, 8)),
-        StaticObstacle(Rectangle(50, 0, 10, 2)),
+    # ]
+    # dynamic_obstacles = [
+    #     DynamicObstacle(Rectangle(30, 25, 10, 2), -1,-1), 
+    #     DynamicObstacle(Rectangle(34, 21, 2, 10), -1,-1) ,
+    # ]
 
-    ]
-    dynamic_obstacles = [
-        DynamicObstacle(Rectangle(30, 25, 10, 2), -1,-1),  # Horizontal part
-        DynamicObstacle(Rectangle(34, 21, 2, 10), -1,-1) ,
-    ]
+    plt.figure(figsize=(12,10))
 
-    obstacle_list = static_obstacles + dynamic_obstacles;  # No dynamic obstacles as per the image
+    detector = ObstacleDetector()
+    positions = {
+        "chair.png": (20, 5),
+        "table.png": (40, 10),
+        "cat.png": (30, 25), # Example of a dynamic object
+        "dog.png": (34, 21), # Example of a dynamic object
+        
+    }
+    sizes = {
+        "chair.png": (20, 30),
+        "table.png": (20, 30),
+        "cat.png": (12, 12),
+        "dog.png": (20, 20),
+    }
+    velocities = {
+        "cat.png": (-1, 0), # Example velocity for car
+        "dog.png": (-1, -1), # Example velocity for person
+    }
+    
+    static_obstacles, dynamic_obstacles = detector.detect_obstacles_from_folder(positions=positions, sizes=sizes, velocities=velocities)
+
+    obstacle_list = static_obstacles + dynamic_obstacles
 
     # Initialize RayTracing and WaitingRule
     ray_tracer = RayTracing(static_obstacles)
     waiting_rule = WaitingRule(robot_speed=1.0)
-
-    # # Initialize RRTVisualizer
-    # visualizer = RRTVisualizer(
-    #     play_area=[-5.0, 60.0, -5.0, 60.0],
-    #     start=RRTPlanner.Node(0, 55),  # Need to create Node instance for visualizer as well
-    #     end=RRTPlanner.Node(gx, gy),    # Need to create Node instance for visualizer as well
-    #     robot_radius=0.8,
-    #     obstacle_list=obstacle_list
-    # )
-
-
-    # Set Initial parameters - start at top-left, goal at bottom-right
+    
     rrt_planner = RRTPlanner(
         start=[0, 55],           # Top-left corner
         goal=[gx, gy],          # Bottom-right corner

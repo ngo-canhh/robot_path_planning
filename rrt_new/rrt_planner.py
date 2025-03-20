@@ -2,12 +2,17 @@ import random
 import math
 
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg  # Add this import
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox  # Add this import
+import os.path as path
+
 import numpy as np
 
 from shape import Circle, Rectangle  # Import Shape classes
 from obstacle import StaticObstacle, DynamicObstacle # Import obstacle classes
 from ray_tracing import RayTracing # Import RayTracing
 from waiting_rule import WaitingRule # Import WaitingRule
+
 
 
 show_animation = True
@@ -319,6 +324,8 @@ class RRTVisualizer:
         self.robot_radius = planner.robot_radius
         self.obstacle_list = planner.obstacle_list
 
+        self.image_cache = {}
+
 
     def draw_graph(self, rnd_node, rrt_planner):
         """
@@ -332,29 +339,12 @@ class RRTVisualizer:
         if rnd_node is not None:
             plt.plot(rnd_node.x, rnd_node.y, "^k")
             if self.robot_radius > 0.0:
-                self.plot_circle(rnd_node.x, rnd_node.y, self.robot_radius, color='red') # Keyword argument for color
+                self.plot_circle(rnd_node.x, rnd_node.y, self.robot_radius, color='red')
         for node in rrt_planner.node_list:
             if node.parent:
                 plt.plot(node.path_x, node.path_y, "-g")
 
-        for obstacle in self.obstacle_list: # Iterate through Obstacle objects
-            if isinstance(obstacle, StaticObstacle):
-                if isinstance(obstacle.shape, Circle):
-                    self.plot_circle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.radius)
-                elif isinstance(obstacle.shape, Rectangle):
-                    self.plot_rectangle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.width, obstacle.shape.height)
-            elif isinstance(obstacle, DynamicObstacle): # Handle dynamic obstacles if needed
-                if isinstance(obstacle.shape, Circle):
-                    self.plot_circle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.radius, color='blue') # Keyword argument for color, orange for dynamic
-                    # Add velocity vector visualization
-                    self.plot_velocity_vector(obstacle.shape.x, obstacle.shape.y, 
-                                            obstacle.vx, obstacle.vy, color='red')
-                if isinstance(obstacle.shape, Rectangle):
-                    self.plot_rectangle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.width, obstacle.shape.height, color='blue')
-                    # Add velocity vector visualization
-                    self.plot_velocity_vector(obstacle.shape.x + obstacle.shape.width / 2, obstacle.shape.y + obstacle.shape.height / 2, 
-                                            obstacle.vx, obstacle.vy, color='red')
-
+        # Draw play area boundaries first so obstacles appear on top
         if self.play_area is not None:
             plt.plot([self.play_area.xmin, self.play_area.xmax,
                       self.play_area.xmax, self.play_area.xmin,
@@ -363,6 +353,28 @@ class RRTVisualizer:
                       self.play_area.ymax, self.play_area.ymax,
                       self.play_area.ymin],
                      "-k")
+
+        # Draw obstacles
+        for obstacle in self.obstacle_list:
+            if hasattr(obstacle, 'image_path') and obstacle.image_path:
+                # If the obstacle has an image path, display the image
+                self.plot_image(obstacle)
+            else:
+                # Otherwise, use the original shape visualization
+                if isinstance(obstacle, StaticObstacle):
+                    if isinstance(obstacle.shape, Circle):
+                        self.plot_circle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.radius)
+                    elif isinstance(obstacle.shape, Rectangle):
+                        self.plot_rectangle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.width, obstacle.shape.height)
+                elif isinstance(obstacle, DynamicObstacle):
+                    if isinstance(obstacle.shape, Circle):
+                        self.plot_circle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.radius, color='blue')
+                        self.plot_velocity_vector(obstacle.shape.x, obstacle.shape.y, 
+                                                obstacle.vx, obstacle.vy, color='red')
+                    if isinstance(obstacle.shape, Rectangle):
+                        self.plot_rectangle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.width, obstacle.shape.height, color='blue')
+                        self.plot_velocity_vector(obstacle.shape.x + obstacle.shape.width / 2, obstacle.shape.y + obstacle.shape.height / 2, 
+                                                obstacle.vx, obstacle.vy, color='red')
 
         plt.plot(self.start.x, self.start.y, "xr")
         plt.plot(self.end.x, self.end.y, "xr")
@@ -373,7 +385,61 @@ class RRTVisualizer:
         plt.axis("equal")
         plt.axis([self.play_area.xmin, self.play_area.xmax, self.play_area.ymin, self.play_area.ymax] if self.play_area is not None else [rrt_planner.min_rand, rrt_planner.max_rand, rrt_planner.min_rand, rrt_planner.max_rand])
         plt.grid(True)
-        plt.pause(0.01)
+        plt.pause(0.01)  # Ensure each frame is displayed
+
+    def plot_image(self, obstacle):
+        """Plot actual image for the obstacle with improved visibility."""
+        try:
+            # Get image path
+            img_path = obstacle.image_path
+            
+            # Use cached image if available
+            if img_path in self.image_cache:
+                img = self.image_cache[img_path]
+            else:
+                # Load the image
+                img = mpimg.imread(img_path)
+                self.image_cache[img_path] = img
+            
+            # Get position and size from the obstacle
+            if isinstance(obstacle.shape, Rectangle):
+                x, y = obstacle.shape.x, obstacle.shape.y
+                width, height = obstacle.shape.width, obstacle.shape.height
+            elif isinstance(obstacle.shape, Circle):
+                x, y = obstacle.shape.x - obstacle.shape.radius, obstacle.shape.y - obstacle.shape.radius
+                width, height = 2 * obstacle.shape.radius, 2 * obstacle.shape.radius
+            else:
+                return  # Unsupported shape
+            
+            # Determine appropriate zoom factor - make image larger for visibility
+            # Increase zoom by multiplying by a factor (e.g., 2.0)
+            zoom_factor = 2.0  # Adjust this to make images larger or smaller
+            img_zoom = max(width/img.shape[1], height/img.shape[0]) * zoom_factor
+            
+            # Create an OffsetImage with the image
+            imagebox = OffsetImage(img, zoom=img_zoom)
+            
+            # Create and add an AnnotationBbox
+            ab = AnnotationBbox(imagebox, (x + width/2, y + height/2), 
+                                frameon=True,  # Add a frame around the image
+                                pad=0.5,  # Add some padding
+                                bboxprops=dict(edgecolor='red' if isinstance(obstacle, DynamicObstacle) else 'black'))
+            plt.gca().add_artist(ab)
+            
+            # If it's a dynamic obstacle, add velocity vector
+            if isinstance(obstacle, DynamicObstacle):
+                self.plot_velocity_vector(x + width/2, y + height/2, 
+                                          obstacle.vx, obstacle.vy, color='red')
+                
+        except Exception as e:
+            print(f"Error displaying image for obstacle: {e}")
+            # Fall back to regular shape visualization
+            if isinstance(obstacle.shape, Circle):
+                self.plot_circle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.radius, 
+                                 color='blue' if isinstance(obstacle, DynamicObstacle) else 'k')
+            elif isinstance(obstacle.shape, Rectangle):
+                self.plot_rectangle(obstacle.shape.x, obstacle.shape.y, obstacle.shape.width, obstacle.shape.height,
+                                    color='blue' if isinstance(obstacle, DynamicObstacle) else 'k')
 
     def plot_circle(self, x, y, radius, color="k"):  # pragma: no cover
         """Plot circle for visualization."""
