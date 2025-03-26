@@ -15,16 +15,14 @@ IMAGE_FOLDER = path.join(DIR_NAME, 'assets/images')
 class GoogleNet:
     def __init__(self):
         self.model = models.googlenet(pretrained=True)
-        self.model.eval()  # Chuyển mô hình sang chế độ đánh giá
+        self.model.eval() 
 
-        # Tiền xử lý ảnh (resize, normalize)
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
         
-        # Get labels
         if os.path.exists(LABELS_DICT_PATH):
             with open(LABELS_DICT_PATH, 'r') as f:
                 self.labels_dict = ast.literal_eval(f.read())
@@ -33,7 +31,7 @@ class GoogleNet:
         image = Image.open(image_path)
         if image.mode != 'RGB':
             image = image.convert('RGB')
-        input_tensor = self.transform(image).unsqueeze(0)  # Thêm batch dimension
+        input_tensor = self.transform(image).unsqueeze(0)  
 
         with torch.no_grad():
             output = self.model(input_tensor)

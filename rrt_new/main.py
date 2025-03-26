@@ -1,12 +1,12 @@
 import matplotlib.pyplot as plt
-from shape import Circle, Rectangle  # Import Shape classes
-from obstacle import StaticObstacle, DynamicObstacle, ObstacleDetector # Import Obstacle classes
-from ray_tracing import RayTracing # Import RayTracing
-from waiting_rule import WaitingRule # Import WaitingRule
-from smoother import ShortcutSmoother, BezierSmooth, Pipeline # Import ShortcutSmooth
-from rrt_planner import RRTPlanner, RRTVisualizer # Import RRTPlanner and RRTVisualizer
+from shape import Circle, Rectangle 
+from obstacle import StaticObstacle, DynamicObstacle, ObstacleDetector 
+from ray_tracing import RayTracing 
+from waiting_rule import WaitingRule 
+from smoother import ShortcutSmoother, BezierSmooth, Pipeline 
+from rrt_planner import RRTPlanner, RRTStarPlanner 
 
-show_animation = True # Flag to enable/disable animation
+show_animation = True 
 
 def main(gx=55.0, gy=5.0, random_seed=None):
     print("start " + __file__)
@@ -36,7 +36,6 @@ def main(gx=55.0, gy=5.0, random_seed=None):
 
     obstacle_list = static_obstacles + dynamic_obstacles
 
-    # Initialize RayTracing and WaitingRule
     ray_tracer = RayTracing(static_obstacles)
     waiting_rule = WaitingRule(robot_speed=1.0)
     
@@ -52,8 +51,25 @@ def main(gx=55.0, gy=5.0, random_seed=None):
         waiting_rule=waiting_rule,
         random_seed=random_seed,
         show_animation = True,
-        smoother=Pipeline([ShortcutSmoother(ray_tracer), BezierSmooth()])
+        smoother=None
     )
+
+    # rrt_planner = RRTStarPlanner(
+    #     start=[0, 55],           
+    #     goal=[gx, gy],         
+    #     rand_area=[-1, 60],
+    #     obstacle_list=obstacle_list,
+    #     robot_radius=0.8,
+    #     play_area=[-5.0, 60.0, -5.0, 60.0],
+    #     path_resolution=1,
+    #     ray_tracer=ray_tracer,
+    #     waiting_rule=waiting_rule,
+    #     random_seed=random_seed,
+    #     show_animation=True,
+    #     smoother=None
+    # )
+    typeRRT = "RRT*" if (isinstance(rrt_planner, RRTStarPlanner)) else "RRT"
+
     rrt_planner.planning(animation=show_animation)
     planner_path = rrt_planner.planner_path
 
@@ -66,11 +82,10 @@ def main(gx=55.0, gy=5.0, random_seed=None):
         # Draw final path
         if show_animation and rrt_planner.visualizer: 
             rrt_planner.visualizer.draw_graph(rnd_node=None, rrt_planner=rrt_planner) 
-            # Add path length text to the figure
             plt.text(30, 57, f"Path Length: {rrt_planner.path_length:.2f}",
                      bbox=dict(facecolor='white', alpha=0.7))
-            plt.plot([x for (x, y) in planner_path], [y for (x, y) in planner_path], '-r', label="RRT path")
-            plt.plot([x for (x, y) in smoother_path], [y for (x, y) in smoother_path], '-b', label="Smoothed path")
+            plt.plot([x for (x, y) in planner_path], [y for (x, y) in planner_path], '-r', label=typeRRT)
+            # plt.plot([x for (x, y) in smoother_path], [y for (x, y) in smoother_path], '-b', label="Smoothed path")
 
             plt.grid(True)
             plt.pause(0.01)

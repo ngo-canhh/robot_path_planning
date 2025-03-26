@@ -314,6 +314,169 @@ class RRTPlanner:
                 # Update position based on velocity and time step
                 obstacle.move(dt)
 
+
+class RRTStarPlanner(RRTPlanner):
+    """
+    RRT* Planner class with path optimization
+    """
+
+    class Node(RRTPlanner.Node):
+        def __init__(self, x, y):
+            super().__init__(x, y)
+            self.cost = 0.0  # Add cost attribute
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.connect_circle_dist = 50.0  # Increased search radius
+        self.start.cost = 0.0  # Initialize start node cost
+
+    def planning(self, animation=True):
+        """
+        RRT* planning algorithm with path optimization
+        """
+        self.node_list = [self.start]
+        for i in range(self.max_iter):
+            # Update dynamic obstacles' positions
+            self.update_dynamic_obstacles(dt=0.1)
+
+            # Random sampling with bias
+            rnd_node = self.get_random_node()
+            
+            # Find nearest node
+            nearest_ind = self.get_nearest_node_index(self.node_list, rnd_node)
+            nearest_node = self.node_list[nearest_ind]
+
+            # Steer towards random node
+            new_node = self.steer(nearest_node, rnd_node, self.expand_dis)
+            
+            if new_node is None:
+                continue
+
+            new_node.cost = nearest_node.cost + self.calc_distance(nearest_node, new_node)
+
+            # Collision check
+            if self.check_collision_free(new_node, self.obstacle_list, new_node):
+                # Find nearby nodes within connection radius
+                neighbor_indices = self.find_near_nodes(new_node)
+                
+                # Choose optimal parent
+                min_cost_node = self.choose_parent(new_node, neighbor_indices)
+                
+                # Add to tree
+                if min_cost_node:
+                    self.node_list.append(min_cost_node)
+                    
+                    # Rewire the tree
+                    self.rewire(min_cost_node, neighbor_indices)
+
+            # Visualization and goal check
+            if animation and i % 5 == 0 and self.visualizer:
+                self.visualizer.draw_graph(rnd_node=rnd_node, rrt_planner=self)
+
+            # Goal check with more lenient condition
+            for node in self.node_list:
+                if self.calc_dist_to_goal(node.x, node.y) <= self.expand_dis:
+                    final_node = self.steer(node, self.end, self.expand_dis)
+                    if final_node and self.check_collision_free(final_node, self.obstacle_list, final_node):
+                        self.generate_final_course(self.node_list.index(node))
+                        return self.final_path
+
+        return None
+
+    def calc_distance(self, from_node, to_node):
+        return math.hypot(from_node.x - to_node.x, from_node.y - to_node.y)
+
+    def find_near_nodes(self, new_node):
+        """
+        Find nodes within connection radius
+        """
+        n = len(self.node_list) + 1
+        # Adjust radius calculation for larger search space
+        r = self.connect_circle_dist * math.sqrt(math.log(n) / n)
+        
+        dist_list = [(node.x - new_node.x)**2 + (node.y - new_node.y)**2
+                    for node in self.node_list]
+        return [i for i, d in enumerate(dist_list) if d <= r**2]
+
+    def choose_parent(self, new_node, neighbor_indices):
+        """
+        Choose parent with minimum cost
+        """
+        if not neighbor_indices:
+            return new_node
+
+        # Try to connect to the nearest node first
+        if neighbor_indices:
+            best_cost = float('inf')
+            best_parent = None
+
+            for i in neighbor_indices:
+                near_node = self.node_list[i]
+                d = self.calc_distance(near_node, new_node)
+                
+                # Check if connecting through this node reduces overall cost
+                tentative_cost = near_node.cost + d
+                
+                if tentative_cost < best_cost and \
+                   self.check_collision(near_node, new_node):
+                    best_cost = tentative_cost
+                    best_parent = near_node
+
+            if best_parent:
+                new_node.parent = best_parent
+                new_node.cost = best_cost
+                return new_node
+
+        return new_node
+
+    def rewire(self, new_node, neighbor_indices):
+        """
+        Rewire the tree to optimize paths
+        """
+        for i in neighbor_indices:
+            near_node = self.node_list[i]
+            d = self.calc_distance(new_node, near_node)
+            
+            # Potential new cost if near_node connects through new_node
+            new_cost = new_node.cost + d
+
+            # Check if this new path is more efficient
+            if new_cost < near_node.cost and \
+               self.check_collision(new_node, near_node):
+                # Update the parent and propagate cost changes
+                near_node.parent = new_node
+                near_node.cost = new_cost
+                self.propagate_cost_to_leaves(near_node)
+
+    def propagate_cost_to_leaves(self, parent_node):
+        """
+        Update costs for all descendants
+        """
+        for node in self.node_list:
+            if node.parent == parent_node:
+                # Recalculate cost based on new parent
+                node.cost = parent_node.cost + self.calc_distance(parent_node, node)
+                # Recursively update descendants
+                self.propagate_cost_to_leaves(node)
+
+    def check_collision(self, start_node, end_node):
+        """
+        Check collision between two nodes
+        """
+        temp_node = self.Node(end_node.x, end_node.y)
+        temp_node.parent = start_node
+        return self.check_collision_free(temp_node, self.obstacle_list, temp_node)
+
+    def steer(self, from_node, to_node, extend_length=float("inf")):
+        """
+        Override steer to update path cost
+        """
+        new_node = super().steer(from_node, to_node, extend_length)
+        if new_node:
+            new_node.cost = from_node.cost + self.calc_distance(from_node, new_node)
+        return new_node
+
+
 class RRTVisualizer:
     """
     Class for visualizing RRT planning process.
