@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from ray_tracing import RayTracing
+from waiting_rule import WaitingRule
 from obstacle import StaticObstacle, Rectangle
+import numpy as np
 
 
 class Smoother(ABC):
@@ -9,8 +11,10 @@ class Smoother(ABC):
         pass
     
 class ShortcutSmoother(Smoother):
+     def __init__(self, ray_tracer):
+         self.ray_tracer = ray_tracer
         
-     def smooth_path(self, path, ray_tracer: RayTracing):
+     def smooth_path(self, path):
         """
         Smooths the given path using the shortcut smoothing algorithm.
 
@@ -31,22 +35,54 @@ class ShortcutSmoother(Smoother):
                 point1 = smoothed_path[i]
                 point2 = smoothed_path[i + 2]
                 # segment = create_segment(point1, point2)
-                if not ray_tracer.check_ray_collision(point1, point2): # Sử dụng hàm kiểm tra va chạm cho lưới
+                if not self.ray_tracer.check_ray_collision(point1, point2): # Sử dụng hàm kiểm tra va chạm cho lưới
                     a = smoothed_path.pop(i+1)
                     print(a)
                     changed = True
                 else:
                     i += 1
         return smoothed_path
+     
+class BezierSmooth(Smoother):
+    # Lưu ý: Các phương thức bên dưới cần được chuyển thành phương thức instance (thêm self) hoặc dùng @staticmethod nếu không dùng biến instance.
+    def bezier_curve(self, P0, P1, P2, P3, num_points=50):
+        t = np.linspace(0, 1, num_points)
+        curve = np.outer((1-t)**3, P0) + np.outer(3*(1-t)**2*t, P1) \
+            + np.outer(3*(1-t)*t**2, P2) + np.outer(t**3, P3)
+        return curve
+
+    def smooth_path_bezier(self, raw_path, num_points_per_segment=50):
+        raw_path = np.array(raw_path)
+        smooth_path = []
+
+        if len(raw_path) < 4:
+            return raw_path
+
+        for i in range(0, len(raw_path) - 3, 3):
+            P0 = raw_path[i]
+            P1 = raw_path[i+1]
+            P2 = raw_path[i+2]
+            P3 = raw_path[i+3]
+            segment = self.bezier_curve(P0, P1, P2, P3, num_points=num_points_per_segment)
+            if i != 0:
+                segment = segment[1:]
+            smooth_path.extend(segment.tolist())
+        return np.array(smooth_path)
+
+    def smooth_path(self, path):
+        """
+        Cho phương thức smooth_path trong BezierSmooth,
+        bạn có thể gọi hàm smooth_path_bezier ở đây.
+        """
+        return self.smooth_path_bezier(path)
+
+class Pipeline(Smoother):
+    def __init__(self, smoothers):
+        self.smoothers = smoothers
     
-if __name__ == '__main__':
-    # Test the ShortcutSmoother class
-    path = [(5, 5), (55, 55)]
-    ray_tracer = RayTracing([StaticObstacle(Rectangle(25, 10, 20, 30))])
-    print(ray_tracer.check_ray_collision((5, 5), (55, 55)))
-    import matplotlib.pyplot as plt
-    plt.figure()
-    plt.plot([x for x, y in path], [y for x, y in path], 'r-')
-    rec = plt.Rectangle((25, 10), 20, 30, edgecolor='k', facecolor='k')
-    plt.gca().add_patch(rec)
-    plt.show()
+    def smooth_path(self, path):
+        new_path = list(path)
+        for smoother in self.smoothers:
+            new_path = smoother.smooth_path(new_path)
+        return new_path
+        

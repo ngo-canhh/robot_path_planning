@@ -203,7 +203,7 @@ class RRTPlanner:
 
         self.planner_path = path
         if self.smoother:
-            self.final_path = self.smoother.smooth_path(path, self.ray_tracer)
+            self.final_path = self.smoother.smooth_path(path)
         else:
             self.final_path = path
 
