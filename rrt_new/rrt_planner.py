@@ -12,6 +12,7 @@ from shape import Circle, Rectangle  # Import Shape classes
 from obstacle import StaticObstacle, DynamicObstacle # Import obstacle classes
 from ray_tracing import RayTracing # Import RayTracing
 from waiting_rule import WaitingRule # Import WaitingRule
+from smoother import Smoother # Import Smoother
 
 
 
@@ -60,6 +61,7 @@ class RRTPlanner:
                  ray_tracer=None, # RayTracing object
                  waiting_rule=None, # WaitingRule object
                  random_seed=None, # Random seed for reproducibility
+                 smoother: Smoother = None, # Smoothing object
                  show_animation=False
                  ):
         """
@@ -98,6 +100,9 @@ class RRTPlanner:
         self.waiting_rule = waiting_rule # WaitingRule object
         self.simulation_time = 0.0  # Initialize simulation time
         self.path_length = 0.0  # Initialize path length
+        self.planner_path = None  # Initialize planner path
+        self.final_path = None  # Initialize final path
+        self.smoother = smoother  # Initialize smoothing path
         if show_animation:
           self.visualizer = RRTVisualizer(self) # RRTVisualizer object
 
@@ -128,7 +133,8 @@ class RRTPlanner:
             if self.calc_dist_to_goal(self.node_list[-1].x, self.node_list[-1].y) <= self.expand_dis:
                 final_node = self.steer(self.node_list[-1], self.end, self.expand_dis)
                 if self.check_collision_free(final_node, self.obstacle_list, final_node):
-                    return self.generate_final_course(len(self.node_list) - 1)
+                    self.generate_final_course(len(self.node_list) - 1)
+                    return self.final_path
 
             if animation and i % 5 and self.visualizer: # Use visualizer to draw
                 self.visualizer.draw_graph(rnd_node=rnd_node, rrt_planner=self)
@@ -195,10 +201,16 @@ class RRTPlanner:
             node = node.parent
         path.append([node.x, node.y])
 
-        # Calculate and store the path length
-        self.path_length = self.calc_path_length(path)
+        self.planner_path = path
+        if self.smoother:
+            self.final_path = self.smoother.smooth_path(path, self.ray_tracer)
+        else:
+            self.final_path = path
 
-        return path
+        # Calculate and store the path length
+        self.path_length = self.calc_path_length(self.final_path)
+
+        return self.final_path
 
     def calc_dist_to_goal(self, x, y):
         """
@@ -301,7 +313,6 @@ class RRTPlanner:
             if isinstance(obstacle, DynamicObstacle):
                 # Update position based on velocity and time step
                 obstacle.move(dt)
-
 
 class RRTVisualizer:
     """

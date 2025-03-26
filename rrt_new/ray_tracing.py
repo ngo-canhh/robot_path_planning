@@ -93,7 +93,6 @@ class RayTracing:
     def _ray_rectangle_intersection(self, start_point, end_point, obstacle):
         """
         Check intersection between ray and rectangle (Rectangle shape).
-        Implementation needed - similar to circle but with rectangle boundaries.
 
         Args:
             start_point (tuple): Ray start point (x, y).
@@ -103,8 +102,47 @@ class RayTracing:
         Returns:
             bool: True if ray intersects the rectangle, False otherwise.
         """
-        # Placeholder - Implement ray-rectangle intersection logic if needed
-        return False  # Placeholder, implement proper logic
+        # Lấy thông tin hình chữ nhật từ obstacle.shape
+        rect = obstacle.shape
+        rect_min_x = rect.x
+        rect_min_y = rect.y
+        rect_max_x = rect.x + rect.width
+        rect_max_y = rect.y + rect.height
+
+        # Hàm kiểm tra xem một điểm có nằm trong hình chữ nhật hay không
+        def is_inside(x, y):
+            return rect_min_x <= x <= rect_max_x and rect_min_y <= y <= rect_max_y
+
+        # Kiểm tra nếu start_point hoặc end_point nằm trong hình chữ nhật
+        if is_inside(*start_point) or is_inside(*end_point):
+            return True
+
+        # Định nghĩa bốn cạnh của hình chữ nhật dưới dạng các cặp điểm
+        edges = [
+            ((rect_min_x, rect_min_y), (rect_min_x, rect_max_y)),  # Cạnh trái
+            ((rect_max_x, rect_min_y), (rect_max_x, rect_max_y)),  # Cạnh phải
+            ((rect_min_x, rect_min_y), (rect_max_x, rect_min_y)),  # Cạnh dưới
+            ((rect_min_x, rect_max_y), (rect_max_x, rect_max_y))   # Cạnh trên
+        ]
+
+        # Hàm kiểm tra giao điểm giữa hai đoạn thẳng
+        def segments_intersect(seg1_start, seg1_end, seg2_start, seg2_end):
+            def ccw(A, B, C):
+                # Tính tích có hướng để xác định vị trí tương đối
+                return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
+
+            A, B = seg1_start, seg1_end
+            C, D = seg2_start, seg2_end
+            # Kiểm tra xem hai đoạn thẳng có giao nhau hay không
+            return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
+
+        # Kiểm tra giao điểm của đoạn thẳng với từng cạnh của hình chữ nhật
+        for edge_start, edge_end in edges:
+            if segments_intersect(start_point, end_point, edge_start, edge_end):
+                return True
+
+        # Nếu không có giao điểm nào được tìm thấy, trả về False
+        return False
 
     def _ray_polygon_intersection(self, start_point, end_point, obstacle):
         """

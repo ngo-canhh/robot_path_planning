@@ -3,6 +3,7 @@ from shape import Circle, Rectangle  # Import Shape classes
 from obstacle import StaticObstacle, DynamicObstacle, ObstacleDetector # Import Obstacle classes
 from ray_tracing import RayTracing # Import RayTracing
 from waiting_rule import WaitingRule # Import WaitingRule
+from smoother import ShortcutSmoother # Import ShortcutSmooth
 from rrt_planner import RRTPlanner, RRTVisualizer # Import RRTPlanner and RRTVisualizer
 
 show_animation = True # Flag to enable/disable animation
@@ -39,7 +40,7 @@ def main(gx=55.0, gy=5.0, random_seed=None):
 
     detector = ObstacleDetector()
     positions = {
-        "chair.png": (20, 5),
+        "chair.png": (25, 10),
         "table.png": (40, 10),
         "cat.png": (30, 25), # Example of a dynamic object
         "dog.png": (34, 21), # Example of a dynamic object
@@ -75,14 +76,17 @@ def main(gx=55.0, gy=5.0, random_seed=None):
         ray_tracer=ray_tracer,
         waiting_rule=waiting_rule,
         random_seed=random_seed,
-        show_animation = True
+        show_animation = True,
+        smoother=ShortcutSmoother()
     )
-    path = rrt_planner.planning(animation=show_animation)
+    rrt_planner.planning(animation=show_animation)
+    planner_path = rrt_planner.planner_path
 
-    if path is None:
+    if planner_path is None:
         print("Cannot find path")
     else:
         print("found path!!")
+        smoother_path = rrt_planner.final_path
 
         # Draw final path
         if show_animation and rrt_planner.visualizer: # Use visualizer to draw final graph
@@ -90,11 +94,13 @@ def main(gx=55.0, gy=5.0, random_seed=None):
             # Add path length text to the figure
             plt.text(30, 57, f"Path Length: {rrt_planner.path_length:.2f}",
                      bbox=dict(facecolor='white', alpha=0.7))
-            plt.plot([x for (x, y) in path], [y for (x, y) in path], '-r')
+            plt.plot([x for (x, y) in planner_path], [y for (x, y) in planner_path], '-r', label="RRT path")
+            plt.plot([x for (x, y) in smoother_path], [y for (x, y) in smoother_path], '-b', label="Smoothed path")
             # Draw a line to show the environment division as in the image
-            plt.plot([0, 60], [30, 30], 'b-', linewidth=1)
+            # plt.plot([0, 60], [30, 30], 'b-', linewidth=1)
             plt.grid(True)
             plt.pause(0.01)
+            plt.legend()
             plt.show()
 
 
