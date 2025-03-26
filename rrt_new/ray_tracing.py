@@ -29,7 +29,7 @@ class RayTracing:
         """
         for obstacle in self.obstacles:
             if isinstance(obstacle.shape, Circle):
-                if self._ray_round_face_intersection(start_point, end_point, obstacle):
+                if self._check_line_circle_intersection(start_point, end_point, obstacle):
                     return True
             elif isinstance(obstacle.shape, Rectangle):
                 if self._ray_rectangle_intersection(start_point, end_point, obstacle):
@@ -89,6 +89,55 @@ class RayTracing:
         if distance_sq_PO <= radius**2:
             return True # Intersection point inside circle
         return False # Intersection point outside circle or no valid intersection
+
+    import math
+
+    def _check_line_circle_intersection(self, start_point, end_point, obstacle):
+        """
+        Kiểm tra xem đoạn thẳng có giao điểm với hình tròn hay không.
+
+        Args:
+            start_point (tuple): Tọa độ điểm đầu của đoạn thẳng (x1, y1).
+            end_point (tuple): Tọa độ điểm cuối của đoạn thẳng (x2, y2).
+            obstacle (StaticObstacle): Đối tượng chướng ngại vật có hình dạng là Circle.
+
+        Returns:
+            bool: True nếu đoạn thẳng giao với hình tròn, False nếu không.
+        """
+        # Trích xuất center và radius từ obstacle.shape
+        center = (obstacle.shape.x, obstacle.shape.y)
+        radius = obstacle.shape.radius
+
+        # Hàm tính khoảng cách từ một điểm đến tâm hình tròn
+        def distance_to_center(point):
+            return math.hypot(point[0] - center[0], point[1] - center[1])
+
+        # Bước 1: Kiểm tra nếu start_point hoặc end_point nằm trong hình tròn
+        if distance_to_center(start_point) <= radius or distance_to_center(end_point) <= radius:
+            return True
+
+        # Vector từ start_point đến end_point
+        d = (end_point[0] - start_point[0], end_point[1] - start_point[1])
+        # Vector từ start_point đến tâm hình tròn
+        c = (center[0] - start_point[0], center[1] - start_point[1])
+
+        # Tính tích vô hướng để tìm hệ số chiếu
+        d_dot_d = d[0]**2 + d[1]**2
+        if d_dot_d == 0:  # Trường hợp start_point và end_point trùng nhau
+            return False  # Đã kiểm tra ở trên, cả hai điểm nằm ngoài
+
+        proj = (c[0] * d[0] + c[1] * d[1]) / d_dot_d
+        # Giới hạn t trong khoảng [0, 1] để điểm chiếu nằm trên đoạn thẳng
+        t = max(0, min(1, proj))
+
+        # Tính tọa độ điểm chiếu
+        p = (start_point[0] + t * d[0], start_point[1] + t * d[1])
+
+        # Tính khoảng cách từ tâm đến điểm chiếu
+        dist = math.hypot(p[0] - center[0], p[1] - center[1])
+
+        # Nếu khoảng cách nhỏ hơn hoặc bằng bán kính, có giao điểm
+        return dist <= radius
 
     def _ray_rectangle_intersection(self, start_point, end_point, obstacle):
         """
@@ -259,3 +308,9 @@ class RayTracing:
             ray_start[2] + t * ray_dir[2]
         )
         return intersection
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    from obstacle import StaticObstacle
+    ray_tracer = RayTracing([StaticObstacle(Circle(25, 25, 15))])
+    print(ray_tracer.check_ray_collision((0, 0), (50, 50)))  # Should return True

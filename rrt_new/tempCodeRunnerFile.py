@@ -1,1 +1,1 @@
-ShortcutSmoother
+BezierSmooth
