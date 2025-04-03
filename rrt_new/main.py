@@ -35,7 +35,7 @@ def main(gx=55.0, gy=5.0, random_seed=None):
     #     DynamicObstacle(Rectangle(34, 21, 2, 10), -1,-1) ,
     # ]
 
-    plt.figure(figsize=(12,10))
+    # plt.figure(figsize=(12,10))
 
     detector = ObstacleDetector()
     positions = {
