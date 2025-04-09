@@ -1,5 +1,5 @@
 import numpy as np
-from obstacle import Obstacle, ObstacleType
+from components.obstacle import Obstacle, ObstacleType
 
 # --- WaitingRule ---
 

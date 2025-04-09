@@ -1,5 +1,5 @@
 import numpy as np
-from obstacle import Obstacle, StaticObstacle, DynamicObstacle
+from components.obstacle import Obstacle, StaticObstacle, DynamicObstacle
 
 # --- RayTracingAlgorithm (Simplified Avoidance) ---
 

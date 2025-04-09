@@ -2,8 +2,8 @@ import time
 import math
 import numpy as np
 from indoor_robot_env import IndoorRobotEnv
-from obstacle import Obstacle, ObstacleType
-from shape import Circle, Rectangle
+from components.obstacle import Obstacle, ObstacleType
+from components.shape import Circle, Rectangle
 from utils.ray_tracing_algorithm import RayTracingAlgorithm
 from utils.rrt_planner import RRTPathPlanner
 from utils.waiting_rule import WaitingRule
@@ -28,7 +28,7 @@ class IndoorRobotController:
         # Controller parameters (mostly same)
         self.goal_threshold = self.robot_radius + 5
         self.max_velocity = self.action_space.high[0]
-        self.min_velocity = 0.2
+        self.min_velocity = 0.3
         self.obstacle_slow_down_distance = self.robot_radius * 5
         self.obstacle_avoid_distance = self.robot_radius * 3
         self.lookahead_distance = self.robot_radius * 4
@@ -181,11 +181,12 @@ class IndoorRobotController:
              # Use check_collision logic: find closest point on shape to robot center
              # This requires exposing that logic or re-implementing here.
              # Simplification: Use distance to center minus estimated radius.
-             dist_center = np.linalg.norm(np.array([robot_x, robot_y]) - obstacle.get_position())
-             est_radius = 0
-             if isinstance(obstacle.shape, Circle): est_radius = obstacle.shape.radius
-             elif isinstance(obstacle.shape, Rectangle): est_radius = 0.5 * math.sqrt(obstacle.shape.width**2 + obstacle.shape.height**2)
-             eff_dist = dist_center - est_radius - self.robot_radius # Approx dist from robot boundary to obs boundary
+            #  dist_center = np.linalg.norm(np.array([robot_x, robot_y]) - obstacle.get_position())
+            #  est_radius = 0
+            #  if isinstance(obstacle.shape, Circle): est_radius = obstacle.shape.radius
+            #  elif isinstance(obstacle.shape, Rectangle): est_radius = 0.5 * math.sqrt(obstacle.shape.width**2 + obstacle.shape.height**2)
+            #  eff_dist = dist_center - est_radius - self.robot_radius # Approx dist from robot boundary to obs boundary
+             eff_dist = obstacle.shape.get_efficient_distance(robot_x, robot_y, *obstacle.get_position()) - self.robot_radius
 
              min_dist_to_static_boundary = min(min_dist_to_static_boundary, eff_dist)
 
@@ -202,11 +203,13 @@ class IndoorRobotController:
                           current_min_avoid_eff_dist = float('inf')
                           if avoiding_obstacle: # If already avoiding one, get its eff_dist again
                               # Recalculate eff_dist for the current 'avoiding_obstacle' to compare
-                              avoid_dist_center = np.linalg.norm(np.array([robot_x, robot_y]) - avoiding_obstacle.get_position())
-                              avoid_est_radius = 0
-                              if isinstance(avoiding_obstacle.shape, Circle): avoid_est_radius = avoiding_obstacle.shape.radius
-                              elif isinstance(avoiding_obstacle.shape, Rectangle): avoid_est_radius = 0.5 * math.sqrt(avoiding_obstacle.shape.width**2 + avoiding_obstacle.shape.height**2)
-                              current_min_avoid_eff_dist = avoid_dist_center - avoid_est_radius - self.robot_radius
+                            #   avoid_dist_center = np.linalg.norm(np.array([robot_x, robot_y]) - avoiding_obstacle.get_position())
+                            #   avoid_est_radius = 0
+                            #   if isinstance(avoiding_obstacle.shape, Circle): avoid_est_radius = avoiding_obstacle.shape.radius
+                            #   elif isinstance(avoiding_obstacle.shape, Rectangle): avoid_est_radius = 0.5 * math.sqrt(avoiding_obstacle.shape.width**2 + avoiding_obstacle.shape.height**2)
+                            #   current_min_avoid_eff_dist = avoid_dist_center - avoid_est_radius - self.robot_radius
+                              current_min_avoid_eff_dist = avoiding_obstacle.shape.get_efficient_distance(robot_x, robot_y, *avoiding_obstacle.get_position()) - self.robot_radius
+
 
                           if eff_dist < current_min_avoid_eff_dist:
                                avoiding_obstacle = obstacle
@@ -214,11 +217,12 @@ class IndoorRobotController:
 
         if avoiding_obstacle is not None:
             # Recalculate final eff_dist for the chosen obstacle for blending
-            avoid_dist_center = np.linalg.norm(np.array([robot_x, robot_y]) - avoiding_obstacle.get_position())
-            avoid_est_radius = 0
-            if isinstance(avoiding_obstacle.shape, Circle): avoid_est_radius = avoiding_obstacle.shape.radius
-            elif isinstance(avoiding_obstacle.shape, Rectangle): avoid_est_radius = 0.5 * math.sqrt(avoiding_obstacle.shape.width**2 + avoiding_obstacle.shape.height**2)
-            final_avoid_eff_dist = avoid_dist_center - avoid_est_radius - self.robot_radius
+            # avoid_dist_center = np.linalg.norm(np.array([robot_x, robot_y]) - avoiding_obstacle.get_position())
+            # avoid_est_radius = 0
+            # if isinstance(avoiding_obstacle.shape, Circle): avoid_est_radius = avoiding_obstacle.shape.radius
+            # elif isinstance(avoiding_obstacle.shape, Rectangle): avoid_est_radius = 0.5 * math.sqrt(avoiding_obstacle.shape.width**2 + avoiding_obstacle.shape.height**2)
+            # final_avoid_eff_dist = avoid_dist_center - avoid_est_radius - self.robot_radius
+            final_avoid_eff_dist = avoiding_obstacle.shape.get_efficient_distance(robot_x, robot_y, *avoiding_obstacle.get_position()) - self.robot_radius
 
             self.status = f"Avoiding static {type(avoiding_obstacle.shape).__name__}"
             avoidance_orientation = self.ray_tracer.avoid_static_obstacle( # Uses simplified centroid-based logic
@@ -243,14 +247,25 @@ class IndoorRobotController:
         # Velocity scaling based on proximity to *any* obstacle boundary
         min_dist_overall_eff = min_dist_to_static_boundary # Start with closest static
         for obs in perceived_dynamic_obstacles: # Also consider dynamic ones
-             dist_center = np.linalg.norm(np.array([robot_x, robot_y]) - obs.get_position())
-             est_radius = 0
-             if isinstance(obs.shape, Circle): est_radius = obs.shape.radius
-             elif isinstance(obs.shape, Rectangle): est_radius = 0.5 * math.sqrt(obs.shape.width**2 + obs.shape.height**2)
-             eff_dist = dist_center - est_radius - self.robot_radius
+            #  dist_center = np.linalg.norm(np.array([robot_x, robot_y]) - obs.get_position())
+            #  est_radius = 0
+            #  if isinstance(obs.shape, Circle): est_radius = obs.shape.radius
+            #  elif isinstance(obs.shape, Rectangle): est_radius = 0.5 * math.sqrt(obs.shape.width**2 + obs.shape.height**2)
+            #  eff_dist = dist_center - est_radius - self.robot_radius
+             eff_dist = obs.shape.get_efficient_distance(robot_x, robot_y, *obs.get_position()) - self.robot_radius
              min_dist_overall_eff = min(min_dist_overall_eff, eff_dist)
 
-        proximity_vel_factor = np.clip(min_dist_overall_eff / self.obstacle_slow_down_distance, 0.0, 1.0)
+        # proximity_vel_factor = np.clip(min_dist_overall_eff / self.obstacle_slow_down_distance, 0.0, 1.0)
+        if min_dist_overall_eff < self.obstacle_avoid_distance:
+            # Áp dụng giảm tốc mạnh khi thực sự cần tránh
+            proximity_vel_factor = np.clip(min_dist_overall_eff / self.obstacle_avoid_distance, 0.0, 1.0)**1.5 # Ví dụ: giảm mạnh hơn nữa khi ở rất gần
+        elif min_dist_overall_eff < self.obstacle_slow_down_distance:
+            # Giảm tốc nhẹ hơn khi chỉ mới vào vùng cảnh báo
+            slow_down_ratio = (min_dist_overall_eff - self.obstacle_avoid_distance) / (self.obstacle_slow_down_distance - self.obstacle_avoid_distance)
+            proximity_vel_factor = 0.5 + 0.5 * slow_down_ratio # Ví dụ: giảm xuống tối thiểu 50% ở ranh giới avoid
+            proximity_vel_factor = np.clip(proximity_vel_factor, 0.5, 1.0) # Đảm bảo không giảm quá nhiều
+        else:
+            proximity_vel_factor = 1.0
 
         velocity = self.max_velocity * steering_vel_factor * proximity_vel_factor
         velocity = np.clip(velocity, self.min_velocity, self.max_velocity)

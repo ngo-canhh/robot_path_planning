@@ -78,6 +78,23 @@ class Shape(ABC):
         pass
 
     @abstractmethod
+    def get_efficient_distance(self, point_x: float, point_y: float, obs_x: float, obs_y: float) -> float:
+        """
+        Returns the distance from the shape to a point (point_x, point_y).
+        This is the distance from point to boundary of shape.
+
+        Args:
+            point_x: X-coordinate of the point.
+            point_y: Y-coordinate of the point.
+            obs_x: Obstacle's reference point x-coordinate.
+            obs_y: Obstacle's reference point y-coordinate.
+
+        Returns:
+            Distance from the shape to the point.
+        """
+        pass
+
+    @abstractmethod
     def get_centroid(self) -> np.ndarray:
         """ Returns the centroid relative to the shape's origin (usually 0,0). """
         pass # Might not be needed if obs_x, obs_y is always the centroid
@@ -136,6 +153,9 @@ class Circle(Shape):
     def get_observation_params(self) -> tuple:
         # type, radius, unused, unused
         return (Circle.SHAPE_TYPE_ENUM, self.radius, 0.0, 0.0)
+    
+    def get_efficient_distance(self, point_x, point_y, obs_x, obs_y):
+        return np.sqrt((point_x - obs_x)**2 + (point_y - obs_y)**2) - self.radius
 
     def get_centroid(self) -> np.ndarray:
         return np.array([0.0, 0.0])
@@ -268,6 +288,17 @@ class Rectangle(Shape):
     def get_observation_params(self) -> tuple:
         # type, width, height, angle
         return (Rectangle.SHAPE_TYPE_ENUM, self.width, self.height, self.angle)
+    
+    def get_efficient_distance(self, point_x, point_y, obs_x, obs_y):
+        # Transform point to local coordinates
+        local_x, local_y = self._world_to_local(point_x, point_y, obs_x, obs_y)
+        # Calculate distance to the rectangle's edges
+        clamped_x = max(-self._half_w, min(self._half_w, local_x))
+        clamped_y = max(-self._half_h, min(self._half_h, local_y))
+        closest_point_on_rect = np.array([clamped_x, clamped_y])
+        local_point_pos = np.array([local_x, local_y])
+        dist_sq = np.sum((local_point_pos - closest_point_on_rect)**2)
+        return math.sqrt(dist_sq)
 
     def get_centroid(self) -> np.ndarray:
         return np.array([0.0, 0.0]) # Centroid is at the reference point (obs_x, obs_y)

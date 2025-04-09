@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 import numpy as np
 import matplotlib.patches as patches
-from shape import Shape, Circle, Rectangle
+from components.shape import Shape, Circle, Rectangle
 
 # --- Obstacle Definitions ---
 

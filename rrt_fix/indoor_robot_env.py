@@ -5,8 +5,8 @@ import matplotlib.patches as patches
 import gymnasium as gym
 from gymnasium import spaces
 import random
-from shape import Circle, Rectangle
-from obstacle import StaticObstacle, DynamicObstacle, ObstacleType
+from components.shape import Circle, Rectangle
+from components.obstacle import StaticObstacle, DynamicObstacle, ObstacleType
 from utils.ray_tracing_algorithm import RayTracingAlgorithm
 from utils.waiting_rule import WaitingRule
 

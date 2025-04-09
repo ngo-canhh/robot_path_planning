@@ -1,7 +1,7 @@
 import numpy as np
 from indoor_robot_env import IndoorRobotEnv
-from obstacle import StaticObstacle, DynamicObstacle
-from shape import Circle, Rectangle
+from components.obstacle import StaticObstacle, DynamicObstacle
+from components.shape import Circle, Rectangle
 
 # --- ObstacleIdentifier ---
 
