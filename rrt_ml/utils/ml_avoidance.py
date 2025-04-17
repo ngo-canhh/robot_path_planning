@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from abc import ABC, abstractmethod
+import os
 class MLAvoidance(ABC):
     """
     Class for ML avoidance.
@@ -110,7 +111,10 @@ class SimpleMLPAvoidance(MLAvoidance):
     """
     Class for ML avoidance using a feedforward neural network.
     """
-    MODEL_PATH = "/Users/ngocanhh/Documents/Study/tinhToanTienHoa/Lab_Robot/rrt_ml/data/robot_avoidance_model.pth" 
+    _current_dir = os.path.dirname(os.path.abspath(__file__))
+    _model_rel_path = os.path.join('..', 'data', 'robot_avoidance_model.pth')
+    MODEL_PATH = os.path.normpath(os.path.join(_current_dir, _model_rel_path))
+
     def __init__(self, obs_robot_state_size, obs_obstacle_data_size):
         """
         Initialize the MLPAvoidance class.
@@ -118,6 +122,9 @@ class SimpleMLPAvoidance(MLAvoidance):
         Args:
             model_path (str): Path to the ML model.
         """
+        if not os.path.exists(self.MODEL_PATH):
+            raise FileNotFoundError(f"[Errno 2] No such file or directory (calculated): '{self.MODEL_PATH}'. Please check the relative path logic and ensure the model file exists.")
+        
         super().__init__(model_path=self.MODEL_PATH)
         self.obs_robot_state_size = obs_robot_state_size
         self.obs_obstacle_data_size = obs_obstacle_data_size
