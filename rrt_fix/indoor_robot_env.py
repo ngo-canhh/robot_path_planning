@@ -2,26 +2,29 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.offsetbox import AnnotationBbox
 import gymnasium as gym
 from gymnasium import spaces
 import random
+import os
+
 from components.shape import Circle, Rectangle
-from components.obstacle import StaticObstacle, DynamicObstacle, ObstacleType
+from components.obstacle import StaticObstacle, DynamicObstacle, ObstacleType, find_image_files
+from utils.obstacle_distinguish import GoogleNet
 from utils.ray_tracing_algorithm import RayTracingAlgorithm
 from utils.waiting_rule import WaitingRule
 
+IMAGE_DIR = r"D:\robot\robot_path_planning\rrt_fix\assets\images"
 
-
-# --- IndoorRobotEnv ---
+print(f"Image directory set to: {IMAGE_DIR}")
 
 class IndoorRobotEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
 
-    # Define constants for observation space structure
-    OBS_ROBOT_STATE_SIZE = 5 # x, y, orientation, gx, gy
-    OBS_OBSTACLE_DATA_SIZE = 9 # x, y, shape_type, p1, p2, p3, is_dynamic, vx, vy
+    OBS_ROBOT_STATE_SIZE = 5
+    OBS_OBSTACLE_DATA_SIZE = 9
 
-    def __init__(self, width=500, height=500, robot_radius=10, max_steps=1000, sensor_range=150, render_mode='rgb_array'):
+    def __init__(self, width=500, height=500, robot_radius=10, max_steps=1000, sensor_range=250, render_mode='rgb_array'):
         super(IndoorRobotEnv, self).__init__()
 
         self.width = width
@@ -39,59 +42,66 @@ class IndoorRobotEnv(gym.Env):
         self.goal_x = None
         self.goal_y = None
 
-        self.obstacles = [] # List of Obstacle objects (ground truth)
+        self.obstacles = []
 
-        # Observation space: [robot_state..., sensed_obstacle_info...]
-        self.max_obstacles_in_observation = 10 # Max obstacles reported
+        # Initialize RayTracingAlgorithm and WaitingRule
+        self.ray_tracer = RayTracingAlgorithm(env_width=width, env_height=height, robot_radius=robot_radius)
+        self.waiting_rule = WaitingRule(robot_radius=robot_radius, safety_margin=20, prediction_horizon=15, time_step=0.5)
+
+        try:
+            self.classifier = GoogleNet()
+            print("GoogleNet Classifier initialized.")
+        except Exception as e:
+            print(f"CRITICAL ERROR: Failed to initialize GoogleNet classifier: {e}")
+            self.classifier = None
+
+        try:
+            self.available_image_paths = find_image_files(IMAGE_DIR)
+            if not self.available_image_paths:
+                print(f"CRITICAL WARNING: No image files found in {IMAGE_DIR}.")
+            else:
+                print(f"Found {len(self.available_image_paths)} images for obstacles.")
+
+                
+        except Exception as e:
+            print(f"CRITICAL ERROR finding image files: {e}")
+            self.available_image_paths = []
+
+        self.max_obstacles_in_observation = 10
         obs_len = self.OBS_ROBOT_STATE_SIZE + self.max_obstacles_in_observation * self.OBS_OBSTACLE_DATA_SIZE
-
-        # Define bounds - Use large enough bounds for shape parameters and velocities
         obs_low = np.full(obs_len, -np.inf, dtype=np.float32)
         obs_high = np.full(obs_len, np.inf, dtype=np.float32)
-
-        # Set specific bounds for known parts
-        obs_low[0:2] = 0.0                  # robot x, y min
-        obs_high[0:2] = [width, height]     # robot x, y max
-        obs_low[2] = -np.pi                 # robot orientation min
-        obs_high[2] = np.pi                 # robot orientation max
-        obs_low[3:5] = 0.0                  # goal x, y min
-        obs_high[3:5] = [width, height]     # goal x, y max
-
-        # Set bounds for obstacle data within the observation loop if needed
-        # For simplicity, we use inf/ -inf for now, padding will use 0
+        obs_low[0:2] = 0.0
+        obs_high[0:2] = [width, height]
+        obs_low[2] = -np.pi
+        obs_high[2] = np.pi
+        obs_low[3:5] = 0.0
+        obs_high[3:5] = [width, height]
         for i in range(self.max_obstacles_in_observation):
-             base = self.OBS_ROBOT_STATE_SIZE + i * self.OBS_OBSTACLE_DATA_SIZE
-             obs_low[base:base+2] = 0.0             # obs x, y min
-             obs_high[base:base+2] = [width, height] # obs x, y max
-             obs_low[base+2] = 0                    # obs shape type min
-             obs_high[base+2] = 10                  # obs shape type max (allow expansion)
-             # Params p1, p2, p3 depend on shape, use inf bounds
-             obs_low[base+6] = 0                    # is_dynamic flag min
-             obs_high[base+6] = 1                   # is_dynamic flag max
-             # Velocities use inf bounds
-
+            base = self.OBS_ROBOT_STATE_SIZE + i * self.OBS_OBSTACLE_DATA_SIZE
+            obs_low[base:base+2] = 0.0
+            obs_high[base:base+2] = [width, height]
+            obs_low[base+2] = 0
+            obs_high[base+2] = 10
+            obs_low[base+6] = 0
+            obs_high[base+6] = 1
         self.observation_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
 
-        # Action space: [velocity, steering_angle] - Limit velocity slightly
-        self.action_space = spaces.Box(low=np.array([0, -np.pi/4]),
-                                      high=np.array([10, np.pi/4]), # Max vel 10
-                                      dtype=np.float32)
+        self.action_space = spaces.Box(low=np.array([0, -np.pi/4]), high=np.array([20, np.pi/4]), dtype=np.float32)
 
-        # Visualization elements
         self.fig = None
         self.ax = None
         self.robot_patch = None
         self.goal_patch = None
-        self.goal_text = None # Added handle for goal text
-        self.obstacle_patches = [] # Now stores patches generated by obstacles
+        self.goal_text = None
+        self.obstacle_patches = []
         self.path = []
-        self.ray_lines = []
-        self.rrt_tree_lines = []
-        self.planned_path_line = None
         self.direction_arrow = None
         self.path_line = None
+        self.planned_path_line = None
         self.sensor_circle = None
-
+        self.rrt_tree_lines = []
+        self.ray_lines = []
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -108,21 +118,35 @@ class IndoorRobotEnv(gym.Env):
             self.goal_x = self.np_random.uniform(margin, self.width - margin)
             self.goal_y = self.np_random.uniform(margin, self.height - margin)
             if np.sqrt((self.goal_x - self.robot_x)**2 + (self.goal_y - self.robot_y)**2) >= min_start_goal_dist:
-                 break
+                break
 
-        # Generate random obstacles (ground truth)
         self.obstacles = []
+        if self.ax:
+            for patch in self.obstacle_patches:
+                if patch and hasattr(patch, 'remove'):
+                    try:
+                        patch.remove()
+                    except NotImplementedError:
+                        pass
+            for artist in list(self.ax.artists):
+                try:
+                    artist.remove()
+                except NotImplementedError:
+                    pass
+            self.obstacle_patches = []
+
         num_obstacles = self.np_random.integers(5, self.max_obstacles_in_observation + 1)
+        print(f"Generating {num_obstacles} obstacles...")
 
-        for _ in range(num_obstacles):
+        dynamic_count = 0
+        max_dynamic = int(num_obstacles * 0.3)
+
+        for i in range(num_obstacles):
             attempts = 0
-            while True: # Ensure obstacle placement is valid
+            obstacle_added = False
+            while attempts < 100 and not obstacle_added:
                 attempts += 1
-                if attempts > 100:
-                    print("Warning: Could not place obstacle, space might be too crowded.")
-                    break
 
-                # Choose shape type
                 shape_type = self.np_random.choice(['circle', 'rectangle'])
                 obs_x = self.np_random.uniform(margin, self.width - margin)
                 obs_y = self.np_random.uniform(margin, self.height - margin)
@@ -130,171 +154,183 @@ class IndoorRobotEnv(gym.Env):
                 if shape_type == 'circle':
                     radius = self.np_random.uniform(15, 40)
                     shape = Circle(radius)
-                    # Effective radius for placement check
                     placement_radius = radius
                 elif shape_type == 'rectangle':
                     width = self.np_random.uniform(20, 60)
                     height = self.np_random.uniform(20, 60)
-                    angle = self.np_random.uniform(-np.pi/4, np.pi/4) # Limit initial angle slightly
+                    angle = self.np_random.uniform(-np.pi/4, np.pi/4)
                     shape = Rectangle(width, height, angle)
-                    # Use half-diagonal for placement check radius (conservative)
                     placement_radius = 0.5 * math.sqrt(width**2 + height**2)
-                else: # Should not happen with current choice
+                else:
                     continue
 
-                # Check minimum distance from robot start and goal (using center point and placement_radius)
                 dist_to_start = np.sqrt((obs_x - self.robot_x)**2 + (obs_y - self.robot_y)**2)
                 dist_to_goal = np.sqrt((obs_x - self.goal_x)**2 + (obs_y - self.goal_y)**2)
-
-                # Check minimum distance from other obstacles (center-to-center + radii)
-                # This is approximate for non-circles but prevents centroid overlap.
                 clear_of_others = True
                 for existing_obs in self.obstacles:
-                    # Use placement radii for existing obstacles too
                     existing_placement_radius = 0
                     if isinstance(existing_obs.shape, Circle):
-                         existing_placement_radius = existing_obs.shape.radius
+                        existing_placement_radius = existing_obs.shape.radius
                     elif isinstance(existing_obs.shape, Rectangle):
-                         existing_placement_radius = 0.5 * math.sqrt(existing_obs.shape.width**2 + existing_obs.shape.height**2)
-
+                        existing_placement_radius = 0.5 * math.sqrt(existing_obs.shape.width**2 + existing_obs.shape.height**2)
                     dist_to_existing = np.sqrt((obs_x - existing_obs.x)**2 + (obs_y - existing_obs.y)**2)
-                    # Ensure spacing between estimated boundaries + robot radius buffer
                     if dist_to_existing < placement_radius + existing_placement_radius + self.robot_radius:
                         clear_of_others = False
                         break
 
-                # Combine checks (using placement_radius)
                 if (dist_to_start > placement_radius + self.robot_radius + 10 and
                     dist_to_goal > placement_radius + self.robot_radius + 10 and
                     clear_of_others):
-                    break # Valid placement found
+                    if not self.available_image_paths:
+                        print("Warning: No images available, defaulting to static obstacle.")
+                        is_dynamic_classified = False
+                        selected_image_path = None
+                        label = "no_image"
+                    else:
+                        selected_image_path = random.choice(self.available_image_paths)
+                        is_dynamic_classified = False
+                        label = "unknown"
 
-            if attempts > 100: continue # Go to next obstacle if placement failed
+                        if self.classifier:
+                            try:
+                                _, label, is_dynamic_classified = self.classifier.predict(selected_image_path)
+                                print(f"  Obstacle {i+1} @({obs_x:.1f},{obs_y:.1f}): '{os.path.basename(selected_image_path)}' -> '{label}' ({'Dynamic' if is_dynamic_classified else 'Static'})")
+                            except Exception as e:
+                                print(f"  Warning: Classifier failed for image {os.path.basename(selected_image_path)}: {e}. Defaulting to static.")
+                                is_dynamic_classified = False
+                                label = "classification_failed"
+                        else:
+                            print(f"  Warning: Classifier not available for obstacle {i+1}. Using random type.")
+                            is_dynamic_classified = (self.np_random.random() < 0.3 and dynamic_count < max_dynamic)
 
-            # Determine obstacle type (Static/Dynamic)
-            if self.np_random.random() < 0.3: # 30% chance dynamic
-                obs_type = ObstacleType.DYNAMIC
-                obs_velocity = self.np_random.uniform(1.0, 4.0)
-                angle = self.np_random.uniform(0, 2*np.pi)
-                obs_direction = np.array([np.cos(angle), np.sin(angle)])
-                obstacle = DynamicObstacle(obs_x, obs_y, shape, obs_velocity, obs_direction)
-            else:
-                obs_type = ObstacleType.STATIC
-                obstacle = StaticObstacle(obs_x, obs_y, shape)
+                    if is_dynamic_classified and dynamic_count >= max_dynamic:
+                        is_dynamic_classified = False
+                        print(f"  Obstacle {i+1} forced to Static to maintain 30% dynamic limit.")
 
-            self.obstacles.append(obstacle)
+                    if is_dynamic_classified:
+                        dynamic_count += 1
+                        obs_velocity = self.np_random.uniform(5.0, 15.0)
+                        angle = self.np_random.uniform(0, 2*np.pi)
+                        obs_direction = np.array([np.cos(angle), np.sin(angle)])
+                        obstacle = DynamicObstacle(obs_x, obs_y, shape, selected_image_path, obs_velocity, obs_direction)
+                    else:
+                        obstacle = StaticObstacle(obs_x, obs_y, shape, selected_image_path)
 
-        # Check if goal ended up inside a generated obstacle
-        goal_margin = 1.0 # Treat goal as a point
+                    self.obstacles.append(obstacle)
+                    obstacle_added = True
+
+            if attempts >= 100 and not obstacle_added:
+                print(f"Warning: Could not place obstacle {i+1}.")
+
+        static_count = sum(1 for obs in self.obstacles if isinstance(obs, StaticObstacle))
+        print(f"Created {static_count} static and {dynamic_count} dynamic obstacles")
+
+        goal_margin = 1.0
         for obs in self.obstacles:
-             if obs.check_collision(self.goal_x, self.goal_y, goal_margin): # Check goal point collision
-                  print("Warning: Goal spawned inside an obstacle, attempting to move goal.")
-                  # Simple fix: move goal slightly away from obstacle center
-                  vec_from_obs = np.array([self.goal_x - obs.x, self.goal_y - obs.y])
-                  dist = np.linalg.norm(vec_from_obs)
-                  # Use a heuristic move distance (e.g., based on shape size)
-                  move_dist = 10 # Default move distance
-                  if isinstance(obs.shape, Circle):
-                      move_dist = obs.shape.radius + 5
-                  elif isinstance(obs.shape, Rectangle):
-                      move_dist = max(obs.shape.width, obs.shape.height)/2 + 5
-
-                  if dist < 1e-6: # Goal exactly at center
-                      self.goal_x += move_dist
-                  else:
-                      # Move along the vector from obs center to goal
-                      self.goal_x += vec_from_obs[0] / dist * move_dist
-                      self.goal_y += vec_from_obs[1] / dist * move_dist
-                  # Clamp goal to bounds
-                  self.goal_x = np.clip(self.goal_x, margin, self.width - margin)
-                  self.goal_y = np.clip(self.goal_y, margin, self.height - margin)
-                  # Note: This simple fix might move it into *another* obstacle. A robust fix is harder.
-
+            if obs.check_collision(self.goal_x, self.goal_y, goal_margin):
+                print("Warning: Goal inside obstacle, moving goal.")
+                vec_from_obs = np.array([self.goal_x - obs.x, self.goal_y - obs.y])
+                dist = np.linalg.norm(vec_from_obs)
+                move_dist = 10
+                if isinstance(obs.shape, Circle):
+                    move_dist = obs.shape.radius + 5
+                elif isinstance(obs.shape, Rectangle):
+                    move_dist = max(obs.shape.width, obs.shape.height)/2 + 5
+                if dist < 1e-6:
+                    self.goal_x += move_dist
+                else:
+                    self.goal_x += vec_from_obs[0] / dist * move_dist
+                    self.goal_y += vec_from_obs[1] / dist * move_dist
+                self.goal_x = np.clip(self.goal_x, margin, self.width - margin)
+                self.goal_y = np.clip(self.goal_y, margin, self.height - margin)
 
         self.path = [(self.robot_x, self.robot_y)]
-
         observation = self._get_observation()
         info = self._get_info()
 
-        # Clear visualization elements
         if self.ax:
-             # Remove old obstacle patches explicitly
-             for patch in self.obstacle_patches:
-                  if patch is not None: patch.remove()
-             self.obstacle_patches = []
-             # Remove other elements
-             if self.robot_patch: self.robot_patch.remove()
-             if self.goal_patch: self.goal_patch.remove()
-             if self.goal_text: self.goal_text.remove() # Remove goal text too
-             if self.direction_arrow: self.direction_arrow.remove()
-             if self.path_line: self.path_line.set_data([], [])
-             if self.planned_path_line: self.planned_path_line.set_data([], [])
-             if self.sensor_circle: self.sensor_circle.remove()
-             for line in self.ray_lines: line.remove()
-             self.ray_lines = []
-             for line in self.rrt_tree_lines: line.remove()
-             self.rrt_tree_lines = []
-
-             # Reset handles
-             self.robot_patch = None
-             self.goal_patch = None
-             self.goal_text = None
-             self.direction_arrow = None
-             self.path_line = None
-             self.planned_path_line = None
-             self.sensor_circle = None
+            if self.robot_patch:
+                self.robot_patch.remove()
+                self.robot_patch = None
+            if self.goal_patch:
+                self.goal_patch.remove()
+                self.goal_patch = None
+            if self.goal_text:
+                self.goal_text.remove()
+                self.goal_text = None
+            if self.direction_arrow:
+                self.direction_arrow.remove()
+                self.direction_arrow = None
+            if self.path_line:
+                self.path_line.remove()
+                self.path_line = None
+            if self.planned_path_line:
+                self.planned_path_line.remove()
+                self.planned_path_line = None
+            if self.sensor_circle:
+                self.sensor_circle.remove()
+                self.sensor_circle = None
+            for line in self.ray_lines:
+                line.remove()
+            self.ray_lines = []
+            for line in self.rrt_tree_lines:
+                line.remove()
+            self.rrt_tree_lines = []
 
         return observation, info
 
     def _get_observation(self):
-        # Base observation: robot state and goal state
         base_obs = [self.robot_x, self.robot_y, self.robot_orientation, self.goal_x, self.goal_y]
 
-        # Add *sensed* obstacle information within sensor_range
+        obstacles_with_distance = []
+        for obstacle in self.obstacles:
+            dist_to_robot_center = np.sqrt((obstacle.x - self.robot_x)**2 + (obstacle.y - self.robot_y)**2)
+            approx_obs_radius = 0
+            if isinstance(obstacle.shape, Circle):
+                approx_obs_radius = obstacle.shape.radius
+            elif isinstance(obstacle.shape, Rectangle):
+                approx_obs_radius = 0.5 * math.sqrt(obstacle.shape.width**2 + obstacle.shape.height**2)
+            effective_dist = dist_to_robot_center - approx_obs_radius
+            if effective_dist <= self.sensor_range:
+                obstacles_with_distance.append((obstacle, dist_to_robot_center))
+                print(f"Obstacle @({obstacle.x:.1f},{obstacle.y:.1f}) within sensor range: dist={dist_to_robot_center:.1f}, effective={effective_dist:.1f}")
+            else:
+                print(f"Obstacle @({obstacle.x:.1f},{obstacle.y:.1f}) outside sensor range: dist={dist_to_robot_center:.1f}, effective={effective_dist:.1f}")
+
+        obstacles_with_distance.sort(key=lambda x: x[1])
+
         sensed_obstacles_data = []
         count = 0
-        for obstacle in self.obstacles:
-            # Check distance from robot center to obstacle center
-            dist_to_robot_center = np.sqrt((obstacle.x - self.robot_x)**2 + (obstacle.y - self.robot_y)**2)
+        for obstacle, dist in obstacles_with_distance[:self.max_obstacles_in_observation]:
+            obs_data = obstacle.get_observation_data()
+            sensed_obstacles_data.extend(obs_data)
+            count += 1
+            print(f"  Sensed obstacle @({obstacle.x:.1f},{obstacle.y:.1f}): Type={'Dynamic' if obstacle.type == ObstacleType.DYNAMIC else 'Static'}, Shape={type(obstacle.shape).__name__}, Vel=({obs_data[7]:.1f},{obs_data[8]:.1f}), Dist={dist:.1f}")
 
-            # Simple check: if obstacle center is within sensor range
-            # A better check would consider the obstacle's extent.
-            if dist_to_robot_center <= self.sensor_range and count < self.max_obstacles_in_observation:
-                # Get the 9 parameters for the observation
-                obs_data = obstacle.get_observation_data()
-                sensed_obstacles_data.extend(obs_data)
-                count += 1
-
-        # Pad observation if fewer than max_obstacles_in_observation are sensed
         num_missing = self.max_obstacles_in_observation - count
         if num_missing > 0:
-            # Pad with zeros, respecting the structure size
             sensed_obstacles_data.extend([0.0] * self.OBS_OBSTACLE_DATA_SIZE * num_missing)
 
-        # Combine and ensure correct type and shape
         observation = np.array(base_obs + sensed_obstacles_data, dtype=np.float32)
 
-        # Verify observation shape
         if observation.shape[0] != self.observation_space.shape[0]:
-             print(f"FATAL Error: Observation shape mismatch. Got {observation.shape}, expected {self.observation_space.shape}")
-             # Attempt to fix by padding/truncating (should not be needed with padding logic)
-             expected_len = self.observation_space.shape[0]
-             current_len = len(observation)
-             if current_len > expected_len:
-                 observation = observation[:expected_len]
-             elif current_len < expected_len:
-                 observation = np.pad(observation, (0, expected_len - current_len), 'constant')
-             print(f"Attempted to fix observation shape to {observation.shape}")
+            print(f"FATAL Error: Observation shape mismatch. Got {observation.shape}, expected {self.observation_space.shape}")
+            expected_len = self.observation_space.shape[0]
+            current_len = len(observation)
+            if current_len > expected_len:
+                observation = observation[:expected_len]
+            elif current_len < expected_len:
+                observation = np.pad(observation, (0, expected_len - current_len), 'constant')
+            print(f"Fixed observation shape to {observation.shape}")
 
         return observation
 
     def _get_info(self):
-        current_dist_to_goal = np.sqrt((self.robot_x - self.goal_x)**2 + (self.robot_y - self.goal_y)**2)
+        current_dist_to_goal = np.sqrt((self.robot_x - self.goal_x)**2 + (self.robot_y - self.robot_y)**2)
         return {
             "distance_to_goal": current_dist_to_goal,
-            "ground_truth_obstacles": self.obstacles # Pass the actual Obstacle objects
+            "ground_truth_obstacles": self.obstacles
         }
-
 
     def step(self, action):
         self.current_step += 1
@@ -304,7 +340,20 @@ class IndoorRobotEnv(gym.Env):
         velocity = np.clip(velocity, self.action_space.low[0], self.action_space.high[0])
         steering_angle = np.clip(steering_angle, self.action_space.low[1], self.action_space.high[1])
 
-        dt = 0.5 # Simulation step time
+        # Check WaitingRule for dynamic obstacles
+        dynamic_obstacles = [obs for obs in self.obstacles if isinstance(obs, DynamicObstacle)]
+        predicted_collisions = self.waiting_rule.check_dynamic_collisions(
+            robot_x=self.robot_x,
+            robot_y=self.robot_y,
+            robot_velocity=velocity,
+            robot_orientation=self.robot_orientation,
+            dynamic_obstacles=dynamic_obstacles
+        )
+        if self.waiting_rule.should_wait(predicted_collisions):
+            print(f"Waiting due to predicted collision with dynamic obstacle(s)")
+            velocity = 0  # Pause robot
+
+        dt = 0.5
         self.robot_orientation += steering_angle * dt
         self.robot_orientation = np.arctan2(np.sin(self.robot_orientation), np.cos(self.robot_orientation))
 
@@ -319,7 +368,6 @@ class IndoorRobotEnv(gym.Env):
         reward = 0
         info = {'status': 'in_progress'}
 
-        # Check boundary collision
         if not (self.robot_radius <= new_x <= self.width - self.robot_radius and
                 self.robot_radius <= new_y <= self.height - self.robot_radius):
             reward = -50
@@ -329,38 +377,35 @@ class IndoorRobotEnv(gym.Env):
             info.update(self._get_info())
             return observation, reward, terminated, truncated, info
 
-        # Check obstacle collision (using obstacle's collision check method)
         collision = False
+        colliding_obs_type_name = "Unknown"
         for obstacle in self.obstacles:
-            # Use the obstacle's check_collision method
             if obstacle.check_collision(new_x, new_y, self.robot_radius):
                 collision = True
-                colliding_obs_type = type(obstacle.shape).__name__
-                # print(f"Collision with {colliding_obs_type} at ({obstacle.x:.1f}, {obstacle.y:.1f})")
+                colliding_obs_type_name = type(obstacle.shape).__name__
                 break
 
         if collision:
             reward = -50
             terminated = True
-            info['status'] = f'obstacle_collision ({colliding_obs_type})'
+            info['status'] = f'obstacle_collision ({colliding_obs_type_name})'
             observation = self._get_observation()
             info.update(self._get_info())
             return observation, reward, terminated, truncated, info
 
-        # --- Update State if No Collision ---
         self.robot_x = new_x
         self.robot_y = new_y
         self.path.append((self.robot_x, self.robot_y))
 
-        # Update dynamic obstacles (ground truth)
         bounds = (0, 0, self.width, self.height)
         for obstacle in self.obstacles:
-             obstacle.update(dt=dt, bounds=bounds) # Pass bounds for bouncing
+            if isinstance(obstacle, DynamicObstacle):
+                obstacle.update(dt=dt, bounds=bounds)
+                print(f"Updated DynamicObstacle @({obstacle.x:.1f},{obstacle.y:.1f})")
+            else:
+                print(f"Skipped update for StaticObstacle @({obstacle.x:.1f},{obstacle.y:.1f})")
 
-
-        # --- Calculate Reward and Termination/Truncation ---
         distance_to_goal = np.sqrt((self.robot_x - self.goal_x)**2 + (self.robot_y - self.goal_y)**2)
-
         goal_threshold = self.robot_radius + 5
         if distance_to_goal < goal_threshold:
             reward = 200
@@ -370,149 +415,131 @@ class IndoorRobotEnv(gym.Env):
             reward_dist = prev_distance - distance_to_goal
             reward_time = -0.5
             reward = (reward_dist * 1.5) + reward_time
-
             if self.current_step >= self.max_steps:
                 truncated = True
                 reward -= 50
                 info['status'] = 'max_steps_reached'
 
-
         observation = self._get_observation()
         info.update(self._get_info())
-
         return observation, reward, terminated, truncated, info
 
     def render(self, mode='human', controller_info=None):
         if mode not in self.metadata['render.modes']:
-             raise ValueError(f"Unsupported render mode: {mode}")
+            raise ValueError(f"Unsupported render mode: {mode}")
 
         if self.fig is None:
-             if mode == 'human':
-                  plt.ion()
-                  self.fig, self.ax = plt.subplots(figsize=(8, 8))
-             elif mode == 'rgb_array':
-                  import matplotlib
-                  matplotlib.use('Agg')
-                  self.fig, self.ax = plt.subplots(figsize=(8, 8))
-             self.ax.set_xlim(0, self.width)
-             self.ax.set_ylim(0, self.height)
-             self.ax.set_aspect('equal')
-             self.ax.grid(True)
-             plt.title("Indoor Robot Simulation (OOP Obstacles)")
-             plt.xlabel("X")
-             plt.ylabel("Y")
+            if mode == 'human':
+                plt.ion()
+            self.fig, self.ax = plt.subplots(figsize=(8, 8))
+            self.ax.set_xlim(0, self.width)
+            self.ax.set_ylim(0, self.height)
+            self.ax.set_aspect('equal')
+            self.ax.grid(True)
+            plt.title("Indoor Robot Simulation (Image Obstacles)")
+            plt.xlabel("X")
+            plt.ylabel("Y")
 
-        # Clear previous dynamic elements
-        for line in self.ray_lines: line.remove()
-        self.ray_lines = []
-        for line in self.rrt_tree_lines: line.remove()
-        self.rrt_tree_lines = []
-        if self.planned_path_line:
-             self.planned_path_line.remove()
-             self.planned_path_line = None
-        if self.direction_arrow: # Remove old arrow before drawing new one
-            self.direction_arrow.remove()
-            self.direction_arrow = None
-
-
-        # Draw Robot
-        if self.robot_patch is None:
+        if self.robot_patch:
+            self.robot_patch.center = (self.robot_x, self.robot_y)
+        else:
             self.robot_patch = patches.Circle((self.robot_x, self.robot_y), self.robot_radius, fc='blue', alpha=0.8, zorder=5)
             self.ax.add_patch(self.robot_patch)
-        else:
-            self.robot_patch.center = (self.robot_x, self.robot_y)
 
-        # Draw Direction Arrow
+        if self.direction_arrow:
+            self.direction_arrow.remove()
         arrow_len = self.robot_radius * 1.5
         end_x = self.robot_x + arrow_len * np.cos(self.robot_orientation)
         end_y = self.robot_y + arrow_len * np.sin(self.robot_orientation)
-        # Create new arrow patch each time
-        self.direction_arrow = self.ax.arrow(self.robot_x, self.robot_y,
-                                            end_x - self.robot_x, end_y - self.robot_y,
-                                            head_width=max(self.robot_radius * 0.4, 3),
-                                            head_length=max(self.robot_radius * 0.6, 5),
+        self.direction_arrow = self.ax.arrow(self.robot_x, self.robot_y, end_x - self.robot_x, end_y - self.robot_y,
+                                            head_width=max(self.robot_radius * 0.4, 3), head_length=max(self.robot_radius * 0.6, 5),
                                             fc='red', ec='red', length_includes_head=True, zorder=6)
 
-        # Draw Goal
         if self.goal_patch is None:
             self.goal_patch = patches.Circle((self.goal_x, self.goal_y), self.robot_radius * 0.8, fc='lime', alpha=0.8, ec='green', lw=2, zorder=4)
             self.ax.add_patch(self.goal_patch)
             self.goal_text = self.ax.text(self.goal_x, self.goal_y, 'G', ha='center', va='center', color='black', weight='bold', zorder=5)
-        else:
-             # Goal position is static after reset
-             pass
 
-        # Draw Obstacles (Ground Truth using get_render_patch)
-        # If number of obstacles changes or first render, recreate patches
-        if len(self.obstacle_patches) != len(self.obstacles):
-             # Remove any existing patches first
-             for patch in self.obstacle_patches:
-                 if patch is not None: patch.remove()
-             self.obstacle_patches = []
-             for obstacle in self.obstacles:
-                 # Get patch from obstacle itself (which delegates to shape)
-                 patch = obstacle.get_render_patch(alpha=0.6, zorder=3)
-                 self.ax.add_patch(patch)
-                 self.obstacle_patches.append(patch)
-        # Update positions/angles for existing patches
-        else:
-             for i, obstacle in enumerate(self.obstacles):
-                  # Remove the old patch and add the new one to handle updates correctly
-                  # (especially for rotation in rectangles)
-                  if self.obstacle_patches[i] is not None:
-                       self.obstacle_patches[i].remove()
-                  # Get updated patch
-                  new_patch = obstacle.get_render_patch(alpha=0.6, zorder=3)
-                  self.ax.add_patch(new_patch)
-                  self.obstacle_patches[i] = new_patch # Store the new patch handle
+        # Clear existing obstacle patches and annotations
+        for patch in self.obstacle_patches:
+            if patch and hasattr(patch, 'remove'):
+                try:
+                    patch.remove()
+                except NotImplementedError:
+                    pass
+        for artist in list(self.ax.artists):
+            try:
+                artist.remove()
+            except NotImplementedError:
+                pass
+        self.obstacle_patches = []
 
+        # Add new obstacle patches
+        new_obstacle_patches = []
+        for obstacle in self.obstacles:
+            patch_artist = obstacle.get_render_patch(self.ax, alpha=0.6, zorder=3)
+            if isinstance(patch_artist, patches.Patch) and patch_artist not in self.ax.patches:
+                self.ax.add_patch(patch_artist)
+            elif isinstance(patch_artist, AnnotationBbox):
+                self.ax.add_artist(patch_artist)
+            new_obstacle_patches.append(patch_artist)
+        self.obstacle_patches = new_obstacle_patches
 
-        # Draw Path History
         if self.path:
             path_x, path_y = zip(*self.path)
             if self.path_line:
-                 self.path_line.set_data(path_x, path_y)
+                self.path_line.set_data(path_x, path_y)
             else:
-                 self.path_line, = self.ax.plot(path_x, path_y, 'b-', linewidth=1.5, alpha=0.6, label='Robot Path', zorder=2)
+                self.path_line, = self.ax.plot(path_x, path_y, 'b-', linewidth=1.5, alpha=0.6, label='Robot Path', zorder=2)
 
-        # --- Visualization from Controller Info (Optional - RRT/Path) ---
+        # Render rays from RayTracingAlgorithm
+        for line in self.ray_lines:
+            line.remove()
+        self.ray_lines = []
+        _, ray_viz_points = self.ray_tracer.trace_rays(
+            robot_x=self.robot_x,
+            robot_y=self.robot_y,
+            robot_orientation=self.robot_orientation,
+            obstacles=self.obstacles
+        )
+        for (start_x, start_y), (end_x, end_y) in ray_viz_points:
+            line, = self.ax.plot([start_x, end_x], [start_y, end_y], 'y-', alpha=0.3, zorder=1)
+            self.ray_lines.append(line)
+
+        for line in self.rrt_tree_lines:
+            line.remove()
+        self.rrt_tree_lines = []
+        if self.planned_path_line:
+            self.planned_path_line.remove()
+            self.planned_path_line = None
+
         if controller_info:
-            # Visualize RRT Tree
             if 'rrt_nodes' in controller_info and 'rrt_parents' in controller_info and controller_info['rrt_nodes'] is not None:
-                nodes = controller_info['rrt_nodes']
-                parents = controller_info['rrt_parents']
+                nodes, parents = controller_info['rrt_nodes'], controller_info['rrt_parents']
                 for i, p_idx in enumerate(parents):
                     if p_idx != -1 and i < len(nodes) and p_idx < len(nodes):
                         line, = self.ax.plot([nodes[i][0], nodes[p_idx][0]], [nodes[i][1], nodes[p_idx][1]],
                                             'grey', alpha=0.3, linewidth=0.5, zorder=1)
                         self.rrt_tree_lines.append(line)
-
-            # Visualize Planned Path
             if 'planned_path' in controller_info and controller_info['planned_path']:
-                 path_points = controller_info['planned_path']
-                 if len(path_points) > 1:
-                     path_x, path_y = zip(*path_points)
-                     self.planned_path_line, = self.ax.plot(path_x, path_y, 'g--', linewidth=2, alpha=0.7, label='Planned Path', zorder=4)
+                path_points = controller_info['planned_path']
+                if len(path_points) > 1:
+                    path_x, path_y = zip(*path_points)
+                    self.planned_path_line, = self.ax.plot(path_x, path_y, 'g--', linewidth=2, alpha=0.7, label='Planned Path', zorder=4)
 
-
-        # Draw Sensor Range
-        if self.sensor_circle is None:
-             self.sensor_circle = patches.Circle((self.robot_x, self.robot_y), self.sensor_range, fc='none', ec='purple', ls=':', alpha=0.5, label='Sensor Range', zorder=2)
-             self.ax.add_patch(self.sensor_circle)
+        if self.sensor_circle:
+            self.sensor_circle.center = (self.robot_x, self.robot_y)
         else:
-             self.sensor_circle.center = (self.robot_x, self.robot_y)
+            self.sensor_circle = patches.Circle((self.robot_x, self.robot_y), self.sensor_range, fc='none', ec='purple', ls=':', alpha=0.5, label='Sensor Range', zorder=2)
+            self.ax.add_patch(self.sensor_circle)
 
-        # Add legend if needed
         handles, labels = self.ax.get_legend_handles_labels()
-        # Only add legend if labels exist and no legend is present yet
-        # Filter out potentially duplicate labels before adding
         unique_labels_handles = {}
         for h, l in zip(handles, labels):
-             if l not in unique_labels_handles:
-                  unique_labels_handles[l] = h
+            if l and l not in unique_labels_handles:
+                unique_labels_handles[l] = h
         if unique_labels_handles and not self.ax.get_legend():
-             self.ax.legend(unique_labels_handles.values(), unique_labels_handles.keys(), loc='upper right', fontsize='small')
-
+            self.ax.legend(unique_labels_handles.values(), unique_labels_handles.keys(), loc='upper right', fontsize='small')
 
         if mode == 'human':
             plt.draw()
@@ -527,11 +554,10 @@ class IndoorRobotEnv(gym.Env):
     def close(self):
         if self.fig is not None:
             if plt.isinteractive():
-                 plt.ioff()
+                plt.ioff()
             plt.close(self.fig)
             self.fig = None
             self.ax = None
-            # Reset all plot element handles
             self.robot_patch = None
             self.goal_patch = None
             self.goal_text = None
