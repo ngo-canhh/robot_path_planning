@@ -1,14 +1,16 @@
 import math
 import numpy as np
+import yaml
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import gymnasium as gym
 from gymnasium import spaces
 import random
-from components.shape import Circle, Rectangle
+from components.shape import Shape, Circle, Rectangle, Triangle, Polygon
 from components.obstacle import StaticObstacle, DynamicObstacle, ObstacleType
 from utils.ray_tracing_algorithm import RayTracingAlgorithm
 from utils.waiting_rule import WaitingRule
+import copy
 
 
 
@@ -17,11 +19,23 @@ from utils.waiting_rule import WaitingRule
 class IndoorRobotEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
 
-    # Define constants for observation space structure
-    OBS_ROBOT_STATE_SIZE = 5 # x, y, orientation, gx, gy
-    OBS_OBSTACLE_DATA_SIZE = 9 # x, y, shape_type, p1, p2, p3, is_dynamic, vx, vy
+    # # Define constants for observation space structure
+    # OBS_ROBOT_STATE_SIZE = 5 # x, y, orientation, gx, gy
+    # OBS_OBSTACLE_DATA_SIZE = 9 # x, y, shape_type, p1, p2, p3, is_dynamic, vx, vy
 
-    def __init__(self, width=500, height=500, robot_radius=10, max_steps=1000, sensor_range=150, render_mode='rgb_array', obs_chance_dynamic=0.3):
+    def __init__(
+            self, 
+            width=500, 
+            height=500, 
+            start=None,
+            goal=None,
+            robot_radius=10, 
+            max_steps=1000, 
+            sensor_range=150, 
+            render_mode='rgb_array', 
+            obs_chance_dynamic=0.3,
+            config_path=None
+            ):
         super(IndoorRobotEnv, self).__init__()
 
         self.width = width
@@ -33,51 +47,59 @@ class IndoorRobotEnv(gym.Env):
         self.render_mode = render_mode
         self.dt = 0.5
         self.obs_chance_dynamic = obs_chance_dynamic # Probability of dynamic obstacle
-        self.min_start_goal_dist = 400
+        self.min_start_goal_dist = 350
 
         self.robot_x = None
         self.robot_y = None
         self.robot_orientation = None
         self.robot_velocity = 0
+        self.start = start
+        self.goal = goal
+        self.start_x = None
+        self.start_y = None
         self.goal_x = None
         self.goal_y = None
 
+        self.vanilla_obstacles = [] # List of Obstacle objects load from config
         self.obstacles = [] # List of Obstacle objects (ground truth)
 
         # Observation space: [robot_state..., sensed_obstacle_info...]
         self.max_obstacles_in_observation = 10 # Max obstacles reported
-        obs_len = self.OBS_ROBOT_STATE_SIZE + self.max_obstacles_in_observation * self.OBS_OBSTACLE_DATA_SIZE
+        # obs_len = self.OBS_ROBOT_STATE_SIZE + self.max_obstacles_in_observation * self.OBS_OBSTACLE_DATA_SIZE
 
-        # Define bounds - Use large enough bounds for shape parameters and velocities
-        obs_low = np.full(obs_len, -np.inf, dtype=np.float32)
-        obs_high = np.full(obs_len, np.inf, dtype=np.float32)
+        # # Define bounds - Use large enough bounds for shape parameters and velocities
+        # obs_low = np.full(obs_len, -np.inf, dtype=np.float32)
+        # obs_high = np.full(obs_len, np.inf, dtype=np.float32)
 
-        # Set specific bounds for known parts
-        obs_low[0:2] = 0.0                  # robot x, y min
-        obs_high[0:2] = [width, height]     # robot x, y max
-        obs_low[2] = -np.pi                 # robot orientation min
-        obs_high[2] = np.pi                 # robot orientation max
-        obs_low[3:5] = 0.0                  # goal x, y min
-        obs_high[3:5] = [width, height]     # goal x, y max
+        # # Set specific bounds for known parts
+        # obs_low[0:2] = 0.0                  # robot x, y min
+        # obs_high[0:2] = [width, height]     # robot x, y max
+        # obs_low[2] = -np.pi                 # robot orientation min
+        # obs_high[2] = np.pi                 # robot orientation max
+        # obs_low[3:5] = 0.0                  # goal x, y min
+        # obs_high[3:5] = [width, height]     # goal x, y max
 
-        # Set bounds for obstacle data within the observation loop if needed
-        # For simplicity, we use inf/ -inf for now, padding will use 0
-        for i in range(self.max_obstacles_in_observation):
-             base = self.OBS_ROBOT_STATE_SIZE + i * self.OBS_OBSTACLE_DATA_SIZE
-             obs_low[base:base+2] = 0.0             # obs x, y min
-             obs_high[base:base+2] = [width, height] # obs x, y max
-             obs_low[base+2] = 0                    # obs shape type min
-             obs_high[base+2] = 10                  # obs shape type max (allow expansion)
-             # Params p1, p2, p3 depend on shape, use inf bounds
-             obs_low[base+6] = 0                    # is_dynamic flag min
-             obs_high[base+6] = 1                   # is_dynamic flag max
-             # Velocities use inf bounds
+        # # Set bounds for obstacle data within the observation loop if needed
+        # # For simplicity, we use inf/ -inf for now, padding will use 0
+        # for i in range(self.max_obstacles_in_observation):
+        #      base = self.OBS_ROBOT_STATE_SIZE + i * self.OBS_OBSTACLE_DATA_SIZE
+        #      obs_low[base:base+2] = 0.0             # obs x, y min
+        #      obs_high[base:base+2] = [width, height] # obs x, y max
+        #      obs_low[base+2] = 0                    # obs shape type min
+        #      obs_high[base+2] = 10                  # obs shape type max (allow expansion)
+        #      # Params p1, p2, p3 depend on shape, use inf bounds
+        #      obs_low[base+6] = 0                    # is_dynamic flag min
+        #      obs_high[base+6] = 1                   # is_dynamic flag max
+        #      # Velocities use inf bounds
 
-        self.observation_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
+        # self.observation_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
+
+        if config_path is not None:
+            self._load_config(config_path=config_path)
 
         # Action space: [velocity, steering_angle] - Limit velocity slightly
-        self.action_space = spaces.Box(low=np.array([0, -np.pi/4]),
-                                      high=np.array([8, np.pi/4]), # Max vel 8
+        self.action_space = spaces.Box(low=np.array([0, -np.pi/3]),
+                                      high=np.array([25, np.pi/3]), # Max vel 8
                                       dtype=np.float32)
 
         # Visualization elements
@@ -95,133 +117,189 @@ class IndoorRobotEnv(gym.Env):
         self.path_line = None
         self.sensor_circle = None
 
+    def _load_config(self, config_path):
+        """
+        Load env from config path.
+        Input: 
+            config_path: str
+        """
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        self.width = config['environment']['width']
+        self.height = config['environment']['height']
+        obstacles_data = config['obstacles']
+        for data in obstacles_data:
+            obs_x = data['x']
+            obs_y = data['y']
+            shape_type_enum = data['shape_type']
+            shape_params = data['shape_params']
+            is_dynamic_flag = data['dynamic_flag']
+            vel_x = data['vel_x']
+            vel_y = data['vel_y']
+
+            shape = None
+            try:
+                if shape_type_enum == Circle.SHAPE_TYPE_ENUM: # Circle
+                    radius = shape_params[0]
+                    if radius > 1e-3: shape = Circle(radius)
+                elif shape_type_enum == Rectangle.SHAPE_TYPE_ENUM: # Rectangle
+                    width, height, angle = shape_params
+                    if width > 1e-3 and height > 1e-3: shape = Rectangle(width, height, angle)
+                elif shape_type_enum == Triangle.SHAPE_TYPE_ENUM: 
+                    p1_x, p1_y, p2_x, p2_y, p3_x, p3_y = shape_params
+                    shape = Triangle([(p1_x, p1_y), (p2_x, p2_y), (p3_x, p3_y)])
+                elif shape_type_enum == Polygon.SHAPE_TYPE_ENUM: 
+                    # print(f"Polygon shape params: {shape_params}")
+                    vertices = []
+                    for i in range(0, len(shape_params), 2):
+                        vertices.append((shape_params[i], shape_params[i+1]))
+                    shape = Polygon(vertices)
+                        
+            except ValueError as e:
+                print(f"Warning: Invalid shape parameters in observation for obstacle {data}: {e}")
+                shape = None # Could not create shape
+
+            if shape is None:
+                print(f"Warning: Could not determine shape for observed obstacle {data}, skipping.")
+                continue # Skip if shape couldn't be created
+
+            is_dynamic = is_dynamic_flag > 0.5
+            if is_dynamic:
+                velocity = np.sqrt(vel_x**2 + vel_y**2)
+                direction = np.array([vel_x, vel_y])
+                if velocity > 1e-6:
+                    direction = direction / velocity
+                else:
+                    direction = np.array([0.0, 0.0])
+                # Create DynamicObstacle
+                self.vanilla_obstacles.append(DynamicObstacle(obs_x, obs_y, shape, velocity, direction))
+            else:
+                # Create StaticObstacle
+                self.vanilla_obstacles.append(StaticObstacle(obs_x, obs_y, shape))
+
+
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = 0
 
         margin = self.robot_radius + 10
-        self.robot_x = self.np_random.uniform(margin, self.width - margin)
-        self.robot_y = self.np_random.uniform(margin, self.height - margin)
-        self.robot_orientation = self.np_random.uniform(-np.pi, np.pi)
+        if self.start is None:
+            self.start_x = self.np_random.uniform(margin, self.width - margin)
+            self.start_y = self.np_random.uniform(margin, self.height - margin)
+            self.start = (self.start_x, self.start_y)
+        else:
+            self.start_x, self.start_y = self.start
+        
+        self.robot_x, self.robot_y = self.start
+        
+        self.robot_orientation = 0
         self.robot_velocity = 0
 
-        min_start_goal_dist = self.min_start_goal_dist
-        attempts = 0
-        while True:
-            attempts += 1
-            self.goal_x = self.np_random.uniform(margin, self.width - margin)
-            self.goal_y = self.np_random.uniform(margin, self.height - margin)
-            if np.sqrt((self.goal_x - self.robot_x)**2 + (self.goal_y - self.robot_y)**2) >= min_start_goal_dist:
-                 break
-            if attempts > 100:
-                 print(f"Warning: Could not place goal, space might be too crowded but distance start goal is so long {min_start_goal_dist}.")
-                 # Fallback: place goal at a random point
-                 self.goal_x = self.np_random.uniform(margin, self.width - margin)
-                 self.goal_y = self.np_random.uniform(margin, self.height - margin)
-                 break
-            
-
-        # Generate random obstacles (ground truth)
-        self.obstacles = []
-        num_obstacles = self.np_random.integers(5, self.max_obstacles_in_observation + 1)
-
-        for _ in range(num_obstacles):
+        if self.goal is None:
+            min_start_goal_dist = self.min_start_goal_dist
             attempts = 0
-            while True: # Ensure obstacle placement is valid
+            while True:
                 attempts += 1
-                if attempts > 100:
-                    print("Warning: Could not place obstacle, space might be too crowded.")
+                self.goal_x = self.np_random.uniform(margin, self.width - margin)
+                self.goal_y = self.np_random.uniform(margin, self.height - margin)
+                if np.sqrt((self.goal_x - self.robot_x)**2 + (self.goal_y - self.robot_y)**2) >= min_start_goal_dist:
                     break
+                if attempts > 1000:
+                    print(f"Warning: Could not place goal, space might be too crowded but distance start goal is so long {min_start_goal_dist}.")
+                    # Fallback: place goal at a random point
+                    self.goal_x = self.np_random.uniform(margin, self.width - margin)
+                    self.goal_y = self.np_random.uniform(margin, self.height - margin)
+                    break
+            self.goal = self.goal_x, self.goal_y
+        else:
+            self.goal_x, self.goal_y = self.goal
+        
+        if len(self.vanilla_obstacles) == 0:
+            # Generate random obstacles (ground truth)
+            self.obstacles = []
+            num_obstacles = self.np_random.integers(5, self.max_obstacles_in_observation + 1)
 
-                # Choose shape type
-                shape_type = self.np_random.choice(['circle', 'rectangle'])
-                obs_x = self.np_random.uniform(margin, self.width - margin)
-                obs_y = self.np_random.uniform(margin, self.height - margin)
-
-                if shape_type == 'circle':
-                    radius = self.np_random.uniform(15, 40)
-                    shape = Circle(radius)
-                    # Effective radius for placement check
-                    placement_radius = radius
-                elif shape_type == 'rectangle':
-                    width = self.np_random.uniform(20, 60)
-                    height = self.np_random.uniform(20, 60)
-                    angle = self.np_random.uniform(-np.pi/4, np.pi/4) # Limit initial angle slightly
-                    shape = Rectangle(width, height, angle)
-                    # Use half-diagonal for placement check radius (conservative)
-                    placement_radius = 0.5 * math.sqrt(width**2 + height**2)
-                else: # Should not happen with current choice
-                    continue
-
-                # Check minimum distance from robot start and goal (using center point and placement_radius)
-                dist_to_start = np.sqrt((obs_x - self.robot_x)**2 + (obs_y - self.robot_y)**2)
-                dist_to_goal = np.sqrt((obs_x - self.goal_x)**2 + (obs_y - self.goal_y)**2)
-
-                # Check minimum distance from other obstacles (center-to-center + radii)
-                # This is approximate for non-circles but prevents centroid overlap.
-                clear_of_others = True
-                for existing_obs in self.obstacles:
-                    # Use placement radii for existing obstacles too
-                    existing_placement_radius = 0
-                    if isinstance(existing_obs.shape, Circle):
-                         existing_placement_radius = existing_obs.shape.radius
-                    elif isinstance(existing_obs.shape, Rectangle):
-                         existing_placement_radius = 0.5 * math.sqrt(existing_obs.shape.width**2 + existing_obs.shape.height**2)
-
-                    dist_to_existing = np.sqrt((obs_x - existing_obs.x)**2 + (obs_y - existing_obs.y)**2)
-                    # Ensure spacing between estimated boundaries + robot radius buffer
-                    if dist_to_existing < placement_radius + existing_placement_radius + self.robot_radius:
-                        clear_of_others = False
+            for _ in range(num_obstacles):
+                attempts = 0
+                while True: # Ensure obstacle placement is valid
+                    attempts += 1
+                    if attempts > 100:
+                        print("Warning: Could not place obstacle, space might be too crowded.")
                         break
 
-                # Combine checks (using placement_radius)
-                if (dist_to_start > placement_radius + self.robot_radius + 10 and
-                    dist_to_goal > placement_radius + self.robot_radius + 10 and
-                    clear_of_others):
-                    break # Valid placement found
+                    # Choose shape type
+                    obs_x = self.np_random.uniform(margin, self.width - margin)
+                    obs_y = self.np_random.uniform(margin, self.height - margin)
 
-            if attempts > 100: continue # Go to next obstacle if placement failed
+                    shape = Shape.create_random_shape(seed+_)
 
-            # Determine obstacle type (Static/Dynamic)
-            if self.np_random.random() < self.obs_chance_dynamic: # 60% chance dynamic
-                obs_type = ObstacleType.DYNAMIC
-                obs_velocity = self.np_random.uniform(1.0, self.action_space.high[0] * 0.6) 
-                angle = self.np_random.uniform(0, 2*np.pi)
-                obs_direction = np.array([np.cos(angle), np.sin(angle)])
-                obstacle = DynamicObstacle(obs_x, obs_y, shape, obs_velocity, obs_direction)
-            else:
-                obs_type = ObstacleType.STATIC
-                obstacle = StaticObstacle(obs_x, obs_y, shape)
+                    placement_radius = shape.get_effective_radius() # Use shape's effective radius for placement check
 
-            self.obstacles.append(obstacle)
+                    # Check minimum distance from robot start and goal (using center point and placement_radius)
+                    dist_to_start = np.sqrt((obs_x - self.robot_x)**2 + (obs_y - self.robot_y)**2)
+                    dist_to_goal = np.sqrt((obs_x - self.goal_x)**2 + (obs_y - self.goal_y)**2)
 
-        # Check if goal ended up inside a generated obstacle
-        goal_margin = 1.0 # Treat goal as a point
-        for obs in self.obstacles:
-             if obs.check_collision(self.goal_x, self.goal_y, goal_margin): # Check goal point collision
-                  print("Warning: Goal spawned inside an obstacle, attempting to move goal.")
-                  # Simple fix: move goal slightly away from obstacle center
-                  vec_from_obs = np.array([self.goal_x - obs.x, self.goal_y - obs.y])
-                  dist = np.linalg.norm(vec_from_obs)
-                  # Use a heuristic move distance (e.g., based on shape size)
-                  move_dist = 10 # Default move distance
-                  if isinstance(obs.shape, Circle):
-                      move_dist = obs.shape.radius + 5
-                  elif isinstance(obs.shape, Rectangle):
-                      move_dist = max(obs.shape.width, obs.shape.height)/2 + 5
+                    # Check minimum distance from other obstacles (center-to-center + radii)
+                    # This is approximate for non-circles but prevents centroid overlap.
+                    clear_of_others = True
+                    for existing_obs in self.obstacles:
+                        # Use placement radii for existing obstacles too
+                        existing_placement_radius = existing_obs.shape.get_effective_radius()
 
-                  if dist < 1e-6: # Goal exactly at center
-                      self.goal_x += move_dist
-                  else:
-                      # Move along the vector from obs center to goal
-                      self.goal_x += vec_from_obs[0] / dist * move_dist
-                      self.goal_y += vec_from_obs[1] / dist * move_dist
-                  # Clamp goal to bounds
-                  self.goal_x = np.clip(self.goal_x, margin, self.width - margin)
-                  self.goal_y = np.clip(self.goal_y, margin, self.height - margin)
-                  # Note: This simple fix might move it into *another* obstacle. A robust fix is harder.
+                        dist_to_existing = np.sqrt((obs_x - existing_obs.x)**2 + (obs_y - existing_obs.y)**2)
+                        # Ensure spacing between estimated boundaries + robot radius buffer
+                        if dist_to_existing < placement_radius + existing_placement_radius + self.robot_radius:
+                            clear_of_others = False
+                            break
 
+                    # Combine checks (using placement_radius)
+                    if (dist_to_start > placement_radius + self.robot_radius + 10 and
+                        dist_to_goal > placement_radius + self.robot_radius + 10 and
+                        clear_of_others):
+                        break # Valid placement found
+
+                if attempts > 100: continue # Go to next obstacle if placement failed
+
+                # Determine obstacle type (Static/Dynamic)
+                if self.np_random.random() < self.obs_chance_dynamic: # 60% chance dynamic
+                    obs_type = ObstacleType.DYNAMIC
+                    obs_velocity = self.np_random.uniform(1.0, self.action_space.high[0] * 0.6) 
+                    angle = self.np_random.uniform(0, 2*np.pi)
+                    obs_direction = np.array([np.cos(angle), np.sin(angle)])
+                    obstacle = DynamicObstacle(obs_x, obs_y, shape, obs_velocity, obs_direction)
+                else:
+                    obs_type = ObstacleType.STATIC
+                    obstacle = StaticObstacle(obs_x, obs_y, shape)
+
+                self.obstacles.append(obstacle)
+
+            # Check if goal ended up inside a generated obstacle
+            goal_margin = 1.0 # Treat goal as a point
+            for obs in self.obstacles:
+                if obs.check_collision(self.goal_x, self.goal_y, goal_margin): # Check goal point collision
+                    print("Warning: Goal spawned inside an obstacle, attempting to move goal.")
+                    # Simple fix: move goal slightly away from obstacle center
+                    vec_from_obs = np.array([self.goal_x - obs.x, self.goal_y - obs.y])
+                    dist = np.linalg.norm(vec_from_obs)
+                    # Use a heuristic move distance (e.g., based on shape size)
+                    move_dist = obs.shape.get_effective_radius()
+
+                    if dist < 1e-6: # Goal exactly at center
+                        self.goal_x += move_dist
+                    else:
+                        # Move along the vector from obs center to goal
+                        self.goal_x += vec_from_obs[0] / dist * move_dist
+                        self.goal_y += vec_from_obs[1] / dist * move_dist
+                    # Clamp goal to bounds
+                    self.goal_x = np.clip(self.goal_x, margin, self.width - margin)
+                    self.goal_y = np.clip(self.goal_y, margin, self.height - margin)
+                    # Note: This simple fix might move it into *another* obstacle. A robust fix is harder.
+        else:
+            self.obstacles.clear()
+            for obs in self.vanilla_obstacles:
+                self.obstacles.append(copy.deepcopy(obs)) # Deep copy to avoid shared references
 
         self.path = [(self.robot_x, self.robot_y)]
 
@@ -260,45 +338,29 @@ class IndoorRobotEnv(gym.Env):
 
     def _get_observation(self):
         # Base observation: robot state and goal state
-        base_obs = [self.robot_x, self.robot_y, self.robot_orientation, self.goal_x, self.goal_y]
+        base_obs = [self.robot_x, self.robot_y, self.robot_velocity, self.robot_orientation, self.goal_x, self.goal_y]
 
         # Add *sensed* obstacle information within sensor_range
         sensed_obstacles_data = []
-        count = 0
+        # count = 0
         for obstacle in self.obstacles:
             # Check distance from robot center to obstacle center
-            dist_to_robot_center = np.sqrt((obstacle.x - self.robot_x)**2 + (obstacle.y - self.robot_y)**2)
+            efficient_dist = obstacle.get_efficient_distance(self.robot_x, self.robot_y)
 
             # Simple check: if obstacle center is within sensor range
             # A better check would consider the obstacle's extent.
-            if dist_to_robot_center <= self.sensor_range and count < self.max_obstacles_in_observation:
+            if efficient_dist <= self.sensor_range:
                 # Get the 9 parameters for the observation
                 obs_data = obstacle.get_observation_data()
-                sensed_obstacles_data.extend(obs_data)
-                count += 1
-
-        # Pad observation if fewer than max_obstacles_in_observation are sensed
-        num_missing = self.max_obstacles_in_observation - count
-        if num_missing > 0:
-            # Pad with zeros, respecting the structure size
-            sensed_obstacles_data.extend([0.0] * self.OBS_OBSTACLE_DATA_SIZE * num_missing)
-
-        # Combine and ensure correct type and shape
-        observation = np.array(base_obs + sensed_obstacles_data, dtype=np.float32)
-
-        # Verify observation shape
-        if observation.shape[0] != self.observation_space.shape[0]:
-             print(f"FATAL Error: Observation shape mismatch. Got {observation.shape}, expected {self.observation_space.shape}")
-             # Attempt to fix by padding/truncating (should not be needed with padding logic)
-             expected_len = self.observation_space.shape[0]
-             current_len = len(observation)
-             if current_len > expected_len:
-                 observation = observation[:expected_len]
-             elif current_len < expected_len:
-                 observation = np.pad(observation, (0, expected_len - current_len), 'constant')
-             print(f"Attempted to fix observation shape to {observation.shape}")
-
-        return observation
+                sensed_obstacles_data.append(obs_data)
+            
+            if len(sensed_obstacles_data) > self.max_obstacles_in_observation:
+                break
+    
+        return {
+            "base_observation": base_obs,
+            "sensed_obstacles": sensed_obstacles_data
+        }
 
     def _get_info(self):
         current_dist_to_goal = np.sqrt((self.robot_x - self.goal_x)**2 + (self.robot_y - self.goal_y)**2)

@@ -43,7 +43,7 @@ def run_simulation_and_collect(env, controller, num_episodes=10, render=False):
 if __name__ == "__main__":
     # Khởi tạo môi trường và controller
     # render_mode='human' để xem, 'rgb_array' nếu không cần xem hoặc chạy trên server
-    env = IndoorRobotEnv(render_mode='rgb_array', max_steps=500)
+    env = IndoorRobotEnv(render_mode='rgb_array', max_steps=500, obs_chance_dynamic=0.9)
     controller = IndoorRobotController(env)
 
     num_collection_episodes = 50 # Số episode để chạy thu thập dữ liệu

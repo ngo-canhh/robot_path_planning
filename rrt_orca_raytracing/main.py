@@ -3,18 +3,21 @@ from indoor_robot_controller import IndoorRobotController
 import matplotlib.pyplot as plt
 import numpy as np
 
-BASE_SEED = 45 + 16
+BASE_SEED = 88
 
 if __name__ == "__main__":
     print("Running OOP Obstacle Simulation...")
-    # Use the modified environment
-    env = IndoorRobotEnv(width=500, height=500, sensor_range=150, render_mode='human')
-    # env = IndoorRobotEnv(width=500, height=500, sensor_range=150, render_mode='rgb_array')
+    # # Use the modified environment
+    config_path = './convert_map/config_map/Sydney_0_512.yaml'
+    start = (50, 200)
+    goal = (1000, 1050)
+    env = IndoorRobotEnv(config_path=config_path, start=start, goal=goal, robot_radius=10, sensor_range=150, render_mode='human')
+    # env = IndoorRobotEnv(width=500, height=500, sensor_range=150, render_mode='human')
 
     # Use the modified controller
     controller = IndoorRobotController(env)
 
-    max_episodes = 8
+    max_episodes = 10
     episode_rewards = []
     episode_steps = []
     episode_status = []
