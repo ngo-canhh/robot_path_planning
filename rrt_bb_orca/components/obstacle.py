@@ -73,22 +73,11 @@ class Obstacle(ABC):
             'dynamic_flag': bool - 1 for dynamic, 0 for static,
             'vel_x': float - velocity x-axis of obs,
             'vel_y': velocity y-axis of obs,
+            'bounding_box': tuple - (x_min, y_min, x_max, y_max) for bounding box if applicable
 
         }
         """
-        shape_type, shape_params = self.shape.get_observation_params()
-        dynamic_flag = 1.0 if self.type == ObstacleType.DYNAMIC else 0.0
-        vel_x = self.velocity * self.direction[0] if self.type == ObstacleType.DYNAMIC else 0.0
-        vel_y = self.velocity * self.direction[1] if self.type == ObstacleType.DYNAMIC else 0.0
-        return {
-            'x': self.x,
-            'y': self.y,
-            'shape_type': shape_type,
-            'shape_params': shape_params,
-            'dynamic_flag': dynamic_flag,
-            'vel_x': vel_x,
-            'vel_y': vel_y
-        }
+        pass
 
     def reset_to_initial(self):
          """Resets obstacle to its starting position (useful for planner map)."""
@@ -117,6 +106,22 @@ class StaticObstacle(Obstacle):
         # Static obstacles don't move
         pass
 
+    def get_observation_data(self) -> dict:
+        shape_type, shape_params = self.shape.get_observation_params()
+        dynamic_flag = 1.0 if self.type == ObstacleType.DYNAMIC else 0.0
+        vel_x = self.velocity * self.direction[0] if self.type == ObstacleType.DYNAMIC else 0.0
+        vel_y = self.velocity * self.direction[1] if self.type == ObstacleType.DYNAMIC else 0.0
+        return {
+            'x': self.x,
+            'y': self.y,
+            'shape_type': shape_type,
+            'shape_params': shape_params,
+            'dynamic_flag': dynamic_flag,
+            'vel_x': vel_x,
+            'vel_y': vel_y,
+            'bounding_box': None # Static obstacles don't have a bounding box
+        }
+
     def get_render_patch(self, alpha: float = 0.6, zorder: int = 3) -> patches.Patch:
         return super().get_render_patch(color='dimgray', alpha=alpha, zorder=zorder)
 
@@ -143,6 +148,22 @@ class DynamicObstacle(Obstacle):
         """
         super().__init__(x, y, shape, ObstacleType.DYNAMIC, velocity, direction)
         self.bounding_box = bounding_box # Store the specific bounding box
+
+    def get_observation_data(self) -> dict:
+        shape_type, shape_params = self.shape.get_observation_params()
+        dynamic_flag = 1.0 if self.type == ObstacleType.DYNAMIC else 0.0
+        vel_x = self.velocity * self.direction[0] if self.type == ObstacleType.DYNAMIC else 0.0
+        vel_y = self.velocity * self.direction[1] if self.type == ObstacleType.DYNAMIC else 0.0
+        return {
+            'x': self.x,
+            'y': self.y,
+            'shape_type': shape_type,
+            'shape_params': shape_params,
+            'dynamic_flag': dynamic_flag,
+            'vel_x': vel_x,
+            'vel_y': vel_y,
+            'bounding_box': self.bounding_box
+        }
 
     def update(self, dt: float = 1.0, bounds: tuple = (0, 0, 500, 500)):
         """

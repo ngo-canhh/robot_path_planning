@@ -76,7 +76,7 @@ class ImageToMapConverter:
         # shape_name += f" (A:{int(area)})" # Optional: add area to label
         return shape_name
 
-    def process_image(self, img_path, output_path=None, visualize=False, flip_image=True):
+    def process_image(self, img_path, output_path=None, visualize=False, flip_image=True, resize_img_size=None):
         """
         Xử lý hình ảnh và tạo ra file config
 
@@ -99,6 +99,9 @@ class ImageToMapConverter:
 
         if flip_image:
             img_original = cv2.flip(img_original, 0)
+
+        if resize_img_size:
+            img_original = cv2.resize(img_original, resize_img_size, interpolation=cv2.INTER_AREA)
 
         img_gray = cv2.cvtColor(img_original, cv2.COLOR_BGR2GRAY)
 
@@ -226,8 +229,8 @@ class ImageToMapConverter:
                          obs['shape_params'] = [] # Safe fallback
                          shape_name_for_label = "Đa giác (lỗi)"
                          draw_contour = approx_polygon # Attempt to draw original approx
-
-
+            obs['bounding_box'] = None # Using for DynamicObstacle, not here
+            
             # --- Visualization ---
             if draw_contour is not None and len(draw_contour) > 0:
                  # Draw the determined shape boundary (blue for polygons, yellow for rectangles)
@@ -267,7 +270,7 @@ class ImageToMapConverter:
 
         return config, img_result, object_data
 
-    def batch_process(self, input_dir, output_dir, visualize=False, flip_image=True):
+    def batch_process(self, input_dir, output_dir, visualize=False, flip_image=True, resize_img_size=None):
         """
         Xử lý hàng loạt ảnh trong thư mục (Code không đổi)
         """
@@ -287,7 +290,7 @@ class ImageToMapConverter:
 
             print(f"Đang xử lý: {img_file}")
             try:
-                self.process_image(img_path, output_path, visualize=False, flip_image=flip_image) # Visualize one by one if needed
+                self.process_image(img_path, output_path, visualize=False, flip_image=flip_image, resize_img_size=resize_img_size) # Visualize one by one if needed
             except Exception as e:
                  print(f"LỖI NGHIÊM TRỌNG khi xử lý {img_file}: {e}") # Catch errors per image
 
@@ -300,11 +303,11 @@ class ImageToMapConverter:
 # --- Ví dụ sử dụng ---
 if __name__ == "__main__":
     converter = ImageToMapConverter(
-        min_area_threshold=20,
-        rectangle_area_threshold=250,  # Ngưỡng cho HCN/Tròn nhỏ
-        circle_area_threshold=250,
+        min_area_threshold=5,
+        rectangle_area_threshold=60,  # Ngưỡng cho HCN/Tròn nhỏ
+        circle_area_threshold=60,
         circle_vertex_threshold=3,
-        epsilon_factor=0.0095,         # Giảm nhẹ epsilon có thể giữ lại nhiều chi tiết hơn
+        epsilon_factor=0.009,         # Giảm nhẹ epsilon có thể giữ lại nhiều chi tiết hơn
         rectangularity_threshold=0.9 # <<-- TUNE THIS VALUE (0.9 to 0.98 typical)
                                       #      Higher = stricter rectangle requirement
     )
@@ -355,5 +358,6 @@ if __name__ == "__main__":
         input_dir='convert_map/maps',    # <<-- THAY ĐỔI THƯ MỤC NÀY
         output_dir='convert_map/config_map',        # <<-- Thư mục lưu kết quả
         visualize=False,                   # Không hiển thị từng ảnh khi chạy batch
-        flip_image=True                   # <<-- Đặt True nếu cần lật ảnh
+        flip_image=True,                   # <<-- Đặt True nếu cần lật ảnh
+        resize_img_size=(256, 256)         # Kích thước ảnh đầu ra (nếu cần)
     )

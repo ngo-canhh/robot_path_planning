@@ -48,7 +48,7 @@ class IndoorRobotController:
         self.min_velocity = 0.2 # Keep minimum linear velocity? ORCA might output zero.
         self.obstacle_slow_down_distance = self.robot_radius * 5
         self.obstacle_avoid_distance = self.robot_radius * 4 # Used for static avoidance blending
-        self.lookahead_distance = self.robot_radius * 2
+        self.lookahead_distance = self.robot_radius * 0.5
         self.path_invalidation_check_horizon = 5
 
         # --- ORCA Parameters ---

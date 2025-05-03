@@ -1,17 +1,20 @@
 from indoor_robot_env import IndoorRobotEnv
+from components.obstacle import StaticObstacle, DynamicObstacle
+from components.shape import Circle, Rectangle, Triangle, Polygon
 from indoor_robot_controller import IndoorRobotController
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 
 BASE_SEED = 88
 
 if __name__ == "__main__":
     print("Running OOP Obstacle Simulation...")
     # # Use the modified environment
-    config_path = './convert_map/config_map/Sydney_0_512.yaml'
-    start = (50, 200)
-    goal = (1000, 1050)
-    env = IndoorRobotEnv(config_path=config_path, start=start, goal=goal, robot_radius=10, sensor_range=150, render_mode='human')
+    config_path = 'convert_map/config_map/Shanghai_0_512.yaml'
+    start = (12, 50)
+    goal = (250, 250)
+    env = IndoorRobotEnv(config_path=config_path, start=start, goal=goal, robot_radius=2, sensor_range=40, render_mode='human')
     # env = IndoorRobotEnv(width=500, height=500, sensor_range=150, render_mode='human')
 
     # Use the modified controller

@@ -41,6 +41,7 @@ class ObstacleIdentifier:
             is_dynamic_flag = sensed_obs['dynamic_flag']
             vel_x = sensed_obs['vel_x']
             vel_y = sensed_obs['vel_y']
+            bounding_box = sensed_obs['bounding_box'] # tuple (x_min, y_min, x_max, y_max)
 
             # Check if it's valid obstacle data (e.g., non-zero position/params indicate not padding)
             # A robust check might be needed based on how padding is done (e.g., shape_type == -1 for pad?)
@@ -79,8 +80,12 @@ class ObstacleIdentifier:
                     direction = direction / velocity
                 else:
                     direction = np.array([0.0, 0.0])
+
+                if bounding_box is not None:
+                    # Ensure bounding box is a tuple of floats
+                    bounding_box = tuple(map(float, bounding_box))
                 # Create DynamicObstacle
-                perceived_obstacles.append(DynamicObstacle(obs_x, obs_y, shape, velocity, direction))
+                perceived_obstacles.append(DynamicObstacle(obs_x, obs_y, shape, velocity, direction, bounding_box))
             else:
                 # Create StaticObstacle
                 perceived_obstacles.append(StaticObstacle(obs_x, obs_y, shape))

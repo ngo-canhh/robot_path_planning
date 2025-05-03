@@ -7,10 +7,9 @@ import gymnasium as gym
 from gymnasium import spaces
 import random
 from components.shape import Shape, Circle, Rectangle, Triangle, Polygon
-from components.obstacle import StaticObstacle, DynamicObstacle, ObstacleType
-from utils.ray_tracing_algorithm import RayTracingAlgorithm
-from utils.waiting_rule import WaitingRule
+from components.obstacle import Obstacle, StaticObstacle, DynamicObstacle, ObstacleType
 import copy
+from collections.abc import Iterable
 
 
 
@@ -99,7 +98,7 @@ class IndoorRobotEnv(gym.Env):
 
         # Action space: [velocity, steering_angle] - Limit velocity slightly
         self.action_space = spaces.Box(low=np.array([0, -np.pi/3]),
-                                      high=np.array([25, np.pi/3]), # Max vel 8
+                                      high=np.array([0.03 * self.width, np.pi/3]), # Max vel 3% of width
                                       dtype=np.float32)
 
         # Visualization elements
@@ -137,6 +136,7 @@ class IndoorRobotEnv(gym.Env):
             is_dynamic_flag = data['dynamic_flag']
             vel_x = data['vel_x']
             vel_y = data['vel_y']
+            bounding_box = data['bounding_box'] # tuple (x_min, y_min, x_max, y_max)
 
             shape = None
             try:
@@ -172,12 +172,22 @@ class IndoorRobotEnv(gym.Env):
                     direction = direction / velocity
                 else:
                     direction = np.array([0.0, 0.0])
+
+                if bounding_box is not None:
+                    bounding_box = tuple(bounding_box)
                 # Create DynamicObstacle
-                self.vanilla_obstacles.append(DynamicObstacle(obs_x, obs_y, shape, velocity, direction))
+                self.vanilla_obstacles.append(DynamicObstacle(obs_x, obs_y, shape, velocity, direction, bounding_box))
             else:
                 # Create StaticObstacle
                 self.vanilla_obstacles.append(StaticObstacle(obs_x, obs_y, shape))
 
+    def add_obstacles(self, obstacles: Iterable[Obstacle]):
+        """
+        Add obstacles to the environment.
+        Input:
+            obstacles: Iterable of Obstacle object
+        """
+        self.vanilla_obstacles.extend(obstacles)
 
 
     def reset(self, seed=None, options=None):
