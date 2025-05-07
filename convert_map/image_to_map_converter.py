@@ -359,5 +359,5 @@ if __name__ == "__main__":
         output_dir='convert_map/config_map',        # <<-- Thư mục lưu kết quả
         visualize=False,                   # Không hiển thị từng ảnh khi chạy batch
         flip_image=True,                   # <<-- Đặt True nếu cần lật ảnh
-        resize_img_size=(256, 256)         # Kích thước ảnh đầu ra (nếu cần)
+        resize_img_size=(100, 100)         # Kích thước ảnh đầu ra (nếu cần)
     )

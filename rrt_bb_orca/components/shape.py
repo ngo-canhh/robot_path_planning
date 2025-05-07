@@ -180,23 +180,23 @@ class Shape(ABC):
                     y = random.uniform(-60, 60)
                     vertices.append((x, y))
                 return Triangle(vertices)
-            elif "polygon" in shape_name:
-                # Generate a random convex polygon
-                n_vertices = random.randint(4, 15)
-                vertices = []
-                for i in range(n_vertices):
-                    angle = 2 * math.pi * i / n_vertices
-                    radius = random.uniform(0.5, 2.0)
-                    x = radius * math.cos(angle)
-                    y = radius * math.sin(angle)
-                    # Add some noise to make it less regular
-                    x += random.uniform(-60, 60)
-                    y += random.uniform(-60, 60)
-                    vertices.append((x, y))
-                return Polygon(vertices)
+            # elif "polygon" in shape_name:
+            #     # Generate a random convex polygon
+            #     n_vertices = random.randint(4, 15)
+            #     vertices = []
+            #     for i in range(n_vertices):
+            #         angle = 2 * math.pi * i / n_vertices
+            #         radius = random.uniform(0.5, 2.0)
+            #         x = radius * math.cos(angle)
+            #         y = radius * math.sin(angle)
+            #         # Add some noise to make it less regular
+            #         x += random.uniform(-60, 60)
+            #         y += random.uniform(-60, 60)
+            #         vertices.append((x, y))
+            #     return Polygon(vertices)
         
         # If no name provided or name not recognized, choose randomly
-        shape_type = random.choice(["circle", "rectangle", "triangle", "polygon"])
+        shape_type = random.choice(["circle", "rectangle", "triangle"])
         return cls.create_random_shape(seed=None, shape_name=shape_type)
 
 
@@ -1158,7 +1158,7 @@ class Polygon(Shape):
         self.vertices = np.array(vertices)
         
         # Sort vertices clockwise
-        self._sort_vertices_clockwise()
+        # self._sort_vertices_clockwise()
         
         # Perform triangulation of the polygon
         self.triangles = self._triangulate()

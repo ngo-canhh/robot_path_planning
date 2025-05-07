@@ -48,7 +48,11 @@ class IndoorRobotController:
         self.min_velocity = 0.2 # Keep minimum linear velocity? ORCA might output zero.
         self.obstacle_slow_down_distance = self.robot_radius * 5
         self.obstacle_avoid_distance = self.robot_radius * 4 # Used for static avoidance blending
-        self.lookahead_distance = self.robot_radius * 0.5
+        
+        # Replace pure pursuit lookahead with current target index
+        self.current_target_index = 0
+        self.waypoint_threshold = self.robot_radius * 2  # Distance to consider a waypoint reached
+        
         self.path_invalidation_check_horizon = 5
 
         # --- ORCA Parameters ---
@@ -122,6 +126,7 @@ class IndoorRobotController:
          self.current_rrt_nodes = None
          self.current_rrt_parents = None
          self.current_path_target_idx = 0
+         self.current_target_index = 0
          self.perceived_obstacles = []
          # --- Reset Obstacle Memory ---
          self.discovered_static_obstacles = []
@@ -183,22 +188,22 @@ class IndoorRobotController:
     def _action_to_velocity_vector(self, linear_velocity: float, steering_angle: float, robot_orientation: float, robot_x: float, robot_y: float) -> np.ndarray:
         """ Converts [linear_vel, steering_angle] action relative to robot to world velocity [vx, vy]. """
         # Use the intended linear velocity in the *current* robot orientation
-        # ORCA works best with a preferred velocity vector. Pointing towards the lookahead point is better.
-        lookahead_point, _ = self._get_lookahead_point(robot_x, robot_y) # Use last known pos
+        # ORCA works best with a preferred velocity vector. Pointing towards the target point is better.
+        target_point = self._get_current_target_point(robot_x, robot_y) # Use last known pos
 
-        if lookahead_point is None or not self.current_planned_path:
+        if target_point is None or not self.current_planned_path:
              # Fallback: Use current orientation or stop if no path
              pref_vx = linear_velocity * np.cos(robot_orientation)
              pref_vy = linear_velocity * np.sin(robot_orientation)
         else:
-             target_vec = np.array(lookahead_point) - np.array([robot_x, robot_y])
+             target_vec = np.array(target_point) - np.array([robot_x, robot_y])
              dist = np.linalg.norm(target_vec)
              if dist < 1e-6:
-                  # Very close to lookahead, use current orientation or aim for next point if possible
+                  # Very close to target, use current orientation or aim for next point if possible
                   pref_vx = linear_velocity * np.cos(robot_orientation)
                   pref_vy = linear_velocity * np.sin(robot_orientation)
              else:
-                  # Point the preferred velocity towards lookahead, scaled by intended linear speed
+                  # Point the preferred velocity towards target, scaled by intended linear speed
                   unit_target_vec = target_vec / dist
                   pref_vx = linear_velocity * unit_target_vec[0]
                   pref_vy = linear_velocity * unit_target_vec[1]
@@ -235,58 +240,84 @@ class IndoorRobotController:
 
         return np.array([linear_velocity, steering_angle], dtype=np.float32)
 
+    # --- NEW: Get current target point from RRT path ---
+    def _get_current_target_point(self, robot_x, robot_y):
+        """Get the current target point along the RRT path."""
+        if not self.current_planned_path or len(self.current_planned_path) == 0:
+            return None
+            
+        # Make sure target index is within bounds
+        if self.current_target_index >= len(self.current_planned_path):
+            self.current_target_index = len(self.current_planned_path) - 1
+            
+        # Get current target point
+        current_target = self.current_planned_path[self.current_target_index]
+        
+        # Check if we've reached the current target
+        robot_pos = np.array([robot_x, robot_y])
+        target_pos = np.array(current_target)
+        distance_to_target = np.linalg.norm(robot_pos - target_pos)
+        
+        # If we've reached the current waypoint, move to the next one
+        if distance_to_target < self.waypoint_threshold and self.current_target_index < len(self.current_planned_path) - 1:
+            self.current_target_index += 1
+            current_target = self.current_planned_path[self.current_target_index]
+            
+        return current_target
 
-    # --- ( _calculate_path_following_action remains largely the same, handles STATIC obstacles ) ---
-    def _calculate_path_following_action(self, robot_x, robot_y, robot_orientation, perceived_static_obstacles): # Now only receives static
-        """ Calculates the action based on path following and perceived STATIC obstacles """
+    # --- NEW: Calculate RRT path following action ---
+    def _calculate_rrt_following_action(self, robot_x, robot_y, robot_orientation, perceived_static_obstacles):
+        """Calculate action to follow the RRT-planned path directly."""
         # Returns: action = np.array([velocity, steering_angle]), calculation_status
-
-        # --- Start logic (mostly copied, ensure it uses perceived_static_obstacles) ---
-        calculation_status = "Following Path (Calculating)"
-        if not self.current_planned_path: # Check if path exists before getting lookahead
+        
+        calculation_status = "Following RRT Path"
+        if not self.current_planned_path or len(self.current_planned_path) == 0:
             calculation_status = "Path Error (No Path) - Stopping"
             return np.array([0.0, 0.0]), calculation_status
-
-        lookahead_point, self.current_path_target_idx = self._get_lookahead_point(robot_x, robot_y)
-
-        if lookahead_point is None:
-            calculation_status = "Path Error (Lookahead) - Stopping"
+            
+        # Get current target point
+        target_point = self._get_current_target_point(robot_x, robot_y)
+        if target_point is None:
+            calculation_status = "Path Error (No Target) - Stopping"
             return np.array([0.0, 0.0]), calculation_status
-
-        target_x, target_y = lookahead_point
+            
+        # Calculate direction to target
+        target_x, target_y = target_point
         target_vector = np.array([target_x - robot_x, target_y - robot_y])
         target_distance = np.linalg.norm(target_vector)
-        target_orientation = robot_orientation # Default if distance is zero
-
-        if target_distance > 1e-6:
-             target_orientation = np.arctan2(target_vector[1], target_vector[0])
-        # If target_distance is near zero, check next point if available
-        elif self.current_planned_path and self.current_path_target_idx < len(self.current_planned_path) - 1:
-             next_target = self.current_planned_path[self.current_path_target_idx + 1]
-             target_vector = np.array([next_target[0] - robot_x, next_target[1] - robot_y])
-             if np.linalg.norm(target_vector) > 1e-6:
-                  target_orientation = np.arctan2(target_vector[1], target_vector[0])
-
-        # --- Reactive Static Obstacle Avoidance (using perceived_static_obstacles) ---
+        
+        if target_distance < 1e-6:
+            # We're at the target point, check if there's a next point
+            if self.current_target_index < len(self.current_planned_path) - 1:
+                self.current_target_index += 1
+                target_point = self.current_planned_path[self.current_target_index]
+                target_x, target_y = target_point
+                target_vector = np.array([target_x - robot_x, target_y - robot_y])
+                target_distance = np.linalg.norm(target_vector)
+                if target_distance < 1e-6:
+                    # Still too close, just use robot's current orientation
+                    target_orientation = robot_orientation
+                else:
+                    target_orientation = np.arctan2(target_vector[1], target_vector[0])
+            else:
+                # We're at the last point, use robot's current orientation
+                target_orientation = robot_orientation
+        else:
+            target_orientation = np.arctan2(target_vector[1], target_vector[0])
+            
+        # --- Reactive Static Obstacle Avoidance ---
         final_target_orientation = target_orientation
         min_dist_to_static_boundary = float('inf')
         avoiding_obstacle = None
         current_min_avoid_eff_dist = float('inf')
 
-        for obstacle in perceived_static_obstacles: # Iterate only over static ones passed
+        for obstacle in perceived_static_obstacles:
             obs_pos = np.array(obstacle.get_position())
             robot_pos = np.array([robot_x, robot_y])
 
-            # Use efficient distance calculation (center-to-center minus radii/half-widths)
-            # eff_dist = obstacle.shape.get_efficient_distance(robot_x, robot_y, obs_pos[0], obs_pos[1]) - self.robot_radius
             eff_vec = obstacle.shape.get_effective_vector(robot_x, robot_y, obs_pos[0], obs_pos[1])
             eff_dist = np.linalg.norm(eff_vec) # Effective distance
-            # Simplified distance for avoidance trigger: center-to-center distance
-            # center_dist = np.linalg.norm(robot_pos - obs_pos)
-            # Approximate effective distance considering robot radius and obstacle size for trigger
-            # eff_dist = center_dist - self.robot_radius - obstacle.shape.get_effective_radius()
             min_dist_to_static_boundary = min(min_dist_to_static_boundary, eff_dist)
-
 
             if eff_dist < self.obstacle_avoid_distance:
                 vec_to_obs = eff_vec
@@ -294,8 +325,8 @@ class IndoorRobotController:
                 angle_to_obs = np.arctan2(vec_to_obs[1], vec_to_obs[0])
                 angle_diff_to_target = abs(self._normalize_angle(angle_to_obs - target_orientation))
 
-                # # Avoidance cone
-                if angle_diff_to_target < np.pi * 2: # 90 degree cone relative to target dir
+                # Avoidance cone - check all obstacles
+                if angle_diff_to_target < np.pi * 2:
                     # Choose the closest one within the cone based on eff_dist
                     if avoiding_obstacle is None or eff_dist < current_min_avoid_eff_dist:
                             avoiding_obstacle = obstacle
@@ -303,26 +334,28 @@ class IndoorRobotController:
 
         if avoiding_obstacle is not None:
             final_avoid_eff_dist = current_min_avoid_eff_dist
-            calculation_status = f"Avoiding static {type(avoiding_obstacle.shape).__name__} (Calculating)"
+            calculation_status = f"Avoiding static {type(avoiding_obstacle.shape).__name__}"
             print(calculation_status) # Debug print
+            
             # Use ray tracing for avoidance direction
             avoidance_orientation = self.ray_tracer.avoid_static_obstacle(
                 robot_x, robot_y, self.robot_radius, robot_orientation, avoiding_obstacle, target_x, target_y
             )
+            
             # Blend factor based on proximity
             blend_factor = 1.0 - np.clip(final_avoid_eff_dist / self.obstacle_avoid_distance, 0.0, 1.0) ** 4
-
             print (f"Blend factor: {blend_factor:.2f}") # Debug print
-            # blend_factor = blend_factor**2 # Make blending stronger when close
+            
             final_target_orientation = self._slerp_angle(target_orientation, avoidance_orientation, blend_factor)
             print(f'target_orientation: {target_orientation:.2f}, avoidance_orientation: {avoidance_orientation:.2f}, final_target_orientation: {final_target_orientation:.2f}') # Debug print
-
+            
         # --- Calculate Control Action ---
         steering_angle = self._normalize_angle(final_target_orientation - robot_orientation)
         steering_angle = np.clip(steering_angle, self.action_space.low[1], self.action_space.high[1])
 
+        # --- Calculate velocity based on steering and obstacle proximity ---
         velocity = self.max_velocity
-        # --- Velocity Scaling ---
+        
         # Factor based on steering magnitude
         max_steer = abs(self.action_space.high[1]) if self.action_space.high[1] > 1e-6 else np.pi # Avoid division by zero
         norm_steer_mag = abs(steering_angle) / max_steer
@@ -337,20 +370,16 @@ class IndoorRobotController:
             proximity_vel_factor = 0.6 + 0.4 * slow_down_ratio
             proximity_vel_factor = np.clip(proximity_vel_factor, 0.6, 1.0)
 
-        velocity = self.max_velocity * steering_vel_factor * proximity_vel_factor
+        # Factor based on distance to waypoint - slow down when approaching waypoints
+        waypoint_vel_factor = 1.0
+        if target_distance < self.waypoint_threshold * 3:
+            waypoint_vel_factor = np.clip(target_distance / (self.waypoint_threshold * 3), 0.3, 1.0)
+            
+        velocity = self.max_velocity * steering_vel_factor * proximity_vel_factor * waypoint_vel_factor
         velocity = np.clip(velocity, self.min_velocity, self.max_velocity) # Ensure min/max velocity
 
         action = np.array([velocity, steering_angle], dtype=np.float32)
-
-        # Update status if not already set to avoiding/error
-        if "Calculating" in calculation_status:
-             if np.linalg.norm(action) > 1e-6 or self.current_planned_path:
-                 calculation_status = "Following Path (Static Avoidance)"
-             else:
-                 calculation_status = "Path Error (No Action)"
-
         return action, calculation_status
-        # --- End logic ---
 
 
     def get_action(self, observation: dict):
@@ -374,6 +403,7 @@ class IndoorRobotController:
             self.status = "Goal Reached - Stopping"
             self.current_planned_path = None
             self.current_path_target_idx = 0
+            self.current_target_index = 0
             info = self._get_controller_info()
             info['goal_reached'] = True
             final_action = np.array([0.0, 0.0]) # Ensure stop action
@@ -390,7 +420,7 @@ class IndoorRobotController:
         if self.current_planned_path is None or len(self.current_planned_path) <= 1:
              initial_status = "No valid path"
              needs_replan = True
-        elif self.current_path_target_idx >= len(self.current_planned_path):
+        elif self.current_target_index >= len(self.current_planned_path):
              initial_status = "Reached end of path"
              needs_replan = True # Replan to confirm goal or if stuck
              if distance_to_goal > self.goal_threshold * 1.5:
@@ -398,18 +428,10 @@ class IndoorRobotController:
              else:
                  needs_replan = False
                  self.status = "Near Goal (End of Path)"
-        # --- Check path invalidation using DISCOVERED static obstacles ---
-        # elif self._is_path_invalidated(robot_x, robot_y, self.discovered_static_obstacles): # Check against memory
-        #      initial_status = "Path invalidated by obstacle memory"
-        #      needs_replan = True
         # --- Check path invalidation using PERCEIVED obstacles (static and dynamic) ---
-        elif self._is_path_invalidated(robot_x, robot_y, self.perceived_obstacles): # Check against current perception
+        elif self._is_path_invalidated(robot_x, robot_y, perceived_static_obstacles): # Check against current perception
               initial_status = "Path invalidated by perceived obstacle"
               needs_replan = True
-        # --- Force replan if static obstacle memory was updated ---
-        # elif memory_updated:
-        #      initial_status = "Static obstacle memory updated"
-        #      needs_replan = True
 
 
         if needs_replan:
@@ -430,27 +452,30 @@ class IndoorRobotController:
                  self.current_rrt_nodes = nodes
                  self.current_rrt_parents = parents
                  self.current_path_target_idx = 0 # Reset index for new path
+                 self.current_target_index = 0  # Reset target index for direct path following
                  self.status = "Replanning Successful"
             else:
                  self.status = "Replanning Failed"
                  # print(self.status) # Optional print
                  self.current_planned_path = None # Clear failed path
                  self.current_path_target_idx = 0
+                 self.current_target_index = 0
                  self.current_rrt_nodes = nodes # Keep tree for viz
                  self.current_rrt_parents = parents
 
         # Check path availability *after* potential replanning
         path_available = self.current_planned_path is not None and len(self.current_planned_path) > 1
 
-        # --- 4. Calculate Preferred Velocity (based on path following & PERCEIVED static avoidance) ---
+        # --- 4. Calculate Preferred Velocity (based on RRT path following & PERCEIVED static avoidance) ---
         if not path_available:
             preferred_action = np.array([0.0, 0.0])
             if "Replanning Failed" not in self.status: self.status = "No Path - Stopping"
         else:
-            # Calculate the action considering path following and only PERCEIVED static obstacles for immediate reaction
-            preferred_action, self.status = self._calculate_path_following_action(
-                robot_x, robot_y, robot_orientation, perceived_static_obstacles # Pass only currently seen static obs
+            # Calculate the action considering RRT path following and static obstacles
+            preferred_action, path_status = self._calculate_rrt_following_action(
+                robot_x, robot_y, robot_orientation, perceived_static_obstacles
             )
+            self.status = path_status
 
         # Convert preferred action (linear_vel, steering) into a preferred world velocity vector [vx, vy]
         preferred_velocity_vector = self._action_to_velocity_vector(
@@ -531,13 +556,8 @@ class IndoorRobotController:
                 orca_status_suffix = f" (ORCA Error - Stopping)"
 
             # --- Data Collection (for dynamic avoidance steps) ---
-            # Decide what to store: observation + final action ([lin, steer]) or obs + optimal_vel_vec?
-            # Let's store obs + optimal_velocity_vector as it represents the core ORCA output
             if self.collecting_data:
                  self.collected_data.append((observation.copy(), optimal_velocity_vector.copy()))
-                 # If you prefer action:
-                 # final_action_for_data = self._velocity_vector_to_action(optimal_velocity_vector, robot_orientation)
-                 # self.collected_data.append((observation.copy(), final_action_for_data.copy()))
 
         # Update status based on whether ORCA ran and the outcome
         if orca_status_suffix:
@@ -545,15 +565,14 @@ class IndoorRobotController:
              if "Stopping" in orca_status_suffix:
                   self.status = orca_status_suffix.strip() # Remove leading space if any
              else:
-                  # Append ORCA info to the existing status (e.g., "Following Path (Static Avoidance) (ORCA Active)")
-                  # Avoid appending if status already indicates an error/stop condition
+                  # Append ORCA info to the existing status
                   if "Error" not in self.status and "Stopping" not in self.status and "Failed" not in self.status:
                      self.status += orca_status_suffix
         else:
              # ORCA didn't run (no dynamic obstacles)
              if path_available and np.linalg.norm(preferred_action)>1e-6:
                  if "Avoiding static" not in self.status: # Don't overwrite avoidance status
-                     self.status = "Following Path (No dynamic obstacles)"
+                     self.status = "Following RRT Path (No dynamic obstacles)"
              elif not path_available:
                  if "Replanning Failed" not in self.status: # Keep failure status
                      self.status = "No Path / Stopped"
@@ -569,128 +588,9 @@ class IndoorRobotController:
         controller_info["discovered_static_obstacles"] = self.discovered_static_obstacles
         controller_info["map_obstacles_used_for_plan"] = self.map_obstacles # Show what was actually used
 
-        # self.pre_action = final_action.copy()
-
         return final_action, controller_info
 
 
-    # --- Helper functions (_get_lookahead_point, _is_path_invalidated, _normalize_angle, _slerp_angle, _get_controller_info) ---
-    # Paste the existing helper functions here (make sure they are indented correctly within the class)
-    # ... (Keep _get_lookahead_point as is) ...
-    def _get_lookahead_point(self, robot_x, robot_y):
-        # This logic remains the same as it works on the path (list of points)
-        if not self.current_planned_path or len(self.current_planned_path) < 1: # Need at least one point
-            # print("Lookahead: No path")
-            return None, self.current_path_target_idx
-
-        robot_pos = np.array([robot_x, robot_y])
-        current_target_idx = self.current_path_target_idx
-
-        # Ensure target index is valid
-        current_target_idx = min(max(0, current_target_idx), len(self.current_planned_path) - 1)
-
-
-        # --- Update Path Target Index ---
-        search_start_idx = max(0, current_target_idx - 2) # Look back a bit more
-        search_end_idx = min(len(self.current_planned_path) - 2, current_target_idx + 5) # Look ahead a bit
-        min_dist_to_segment_sq = float('inf')
-        closest_segment_idx = current_target_idx # Default
-        projection_t = 0.0 # Projection factor onto the closest segment
-
-        if len(self.current_planned_path) < 2: # Path is just one point
-             dist_to_target_sq = np.sum((robot_pos - np.array(self.current_planned_path[0]))**2)
-             if dist_to_target_sq < (self.lookahead_distance * 0.5)**2:
-                 current_target_idx = 0
-             return self.current_planned_path[0], 0
-
-
-        for i in range(search_start_idx, search_end_idx + 1):
-            if i >= len(self.current_planned_path) - 1: break
-
-            p1 = np.array(self.current_planned_path[i])
-            p2 = np.array(self.current_planned_path[i+1])
-            seg_vec = p2 - p1
-            seg_len_sq = np.dot(seg_vec, seg_vec)
-
-            if seg_len_sq < 1e-12: # Segment is effectively a point
-                 dist_sq = np.sum((robot_pos - p1)**2)
-                 t = 0.0
-            else:
-                 t = np.dot(robot_pos - p1, seg_vec) / seg_len_sq
-                 t_clamped = np.clip(t, 0, 1)
-                 closest_point_on_segment = p1 + t_clamped * seg_vec
-                 dist_sq = np.sum((robot_pos - closest_point_on_segment)**2)
-
-            if dist_sq < min_dist_to_segment_sq:
-                 min_dist_to_segment_sq = dist_sq
-                 closest_segment_idx = i
-                 projection_t = t # Store the unclamped projection factor
-
-        # --- Advance Target Index ---
-        if closest_segment_idx == current_target_idx and projection_t > 0.1:
-             if current_target_idx < len(self.current_planned_path) - 1:
-                  current_target_idx += 1
-        elif closest_segment_idx > current_target_idx:
-              current_target_idx = min(closest_segment_idx + 1, len(self.current_planned_path) - 1)
-        elif closest_segment_idx == current_target_idx - 1 and projection_t > 0.5 :
-             if current_target_idx < len(self.current_planned_path) -1:
-                 current_target_idx += 1
-
-
-        current_target_idx = min(max(0, current_target_idx), len(self.current_planned_path) - 1)
-        self.current_path_target_idx = current_target_idx # Update controller state
-
-
-        # --- Find Lookahead Point ---
-        search_start_node_idx = max(0, current_target_idx -1) # Start from segment beginning at this node index
-        start_measure_point = robot_pos # Default
-        if len(self.current_planned_path) >= 2:
-             p1_search = np.array(self.current_planned_path[search_start_node_idx])
-             p2_search_idx = min(search_start_node_idx + 1, len(self.current_planned_path) - 1)
-             p2_search = np.array(self.current_planned_path[p2_search_idx])
-             seg_vec_search = p2_search - p1_search
-             seg_len_sq_search = np.dot(seg_vec_search, seg_vec_search)
-
-             if seg_len_sq_search < 1e-12:
-                  start_measure_point = p1_search
-             else:
-                  t_search = np.dot(robot_pos - p1_search, seg_vec_search) / seg_len_sq_search
-                  t_clamped_search = np.clip(t_search, 0, 1)
-                  start_measure_point = p1_search + t_clamped_search * seg_vec_search
-
-        cumulative_dist = 0.0
-        lookahead_point_found = None
-        first_seg_end_idx = min(search_start_node_idx + 1, len(self.current_planned_path)-1)
-        dist_on_first_segment = np.linalg.norm(np.array(self.current_planned_path[first_seg_end_idx]) - start_measure_point)
-
-        if dist_on_first_segment >= self.lookahead_distance:
-            p1 = start_measure_point
-            p2 = np.array(self.current_planned_path[first_seg_end_idx])
-            vec = p2 - p1
-            norm_vec = vec / dist_on_first_segment if dist_on_first_segment > 1e-6 else vec
-            lookahead_point_found = tuple(p1 + norm_vec * self.lookahead_distance)
-        else:
-            cumulative_dist += dist_on_first_segment
-            for i in range(search_start_node_idx + 1, len(self.current_planned_path) - 1):
-                p1 = np.array(self.current_planned_path[i])
-                p2 = np.array(self.current_planned_path[i+1])
-                segment_vec = p2 - p1
-                segment_len = np.linalg.norm(segment_vec)
-
-                if cumulative_dist + segment_len >= self.lookahead_distance:
-                    remaining_dist = self.lookahead_distance - cumulative_dist
-                    ratio = remaining_dist / segment_len if segment_len > 1e-6 else 0
-                    lookahead_point_found = tuple(p1 + ratio * segment_vec)
-                    break
-                else:
-                    cumulative_dist += segment_len
-
-        if lookahead_point_found is None:
-            lookahead_point_found = tuple(self.current_planned_path[-1]) # Target the end
-
-        return lookahead_point_found, self.current_path_target_idx
-
-    # Modify _is_path_invalidated to accept the list of obstacles to check against
     def _is_path_invalidated(self, robot_x, robot_y, obstacles_to_check: list):
         if not self.current_planned_path or len(self.current_planned_path) < 2:
              return False
@@ -700,7 +600,7 @@ class IndoorRobotController:
         # --- Find segment closest to robot ---
         min_dist_sq = float('inf')
         closest_segment_idx = 0
-        search_center = self.current_path_target_idx
+        search_center = self.current_target_index  # Use current target index instead of path_target_idx
         search_radius = 5
         search_start = max(0, search_center - search_radius)
         search_end = min(len(self.current_planned_path) - 2, search_center + search_radius)
@@ -737,7 +637,6 @@ class IndoorRobotController:
              # Check this path segment against the provided list of obstacles
              for obs in obstacles_to_check: # Use the passed list
                   if obs.intersects_segment(p1_tuple, p2_tuple, self.robot_radius):
-                    #    print(f"Path invalidated: Segment {i} blocked by {obs.type.name} obstacle") # Debug
                        return True # Path is blocked ahead
 
         return False
@@ -763,7 +662,7 @@ class IndoorRobotController:
             "planned_path": self.current_planned_path.copy() if self.current_planned_path else None,
             "rrt_nodes": self.current_rrt_nodes, # Usually RRT nodes are immutable points
             "rrt_parents": self.current_rrt_parents, # Dict might be mutable, copy if needed
-            "target_idx": self.current_path_target_idx,
+            "target_idx": self.current_target_index, # Use the current target index for direct following
             # Add obstacle memory info for debugging/visualization
             "discovered_static_obstacles": [obs for obs in self.discovered_static_obstacles], # Return a copy
             "map_obstacles_used_for_plan": [obs for obs in self.map_obstacles], # Return a copy
