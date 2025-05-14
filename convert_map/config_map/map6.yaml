@@ -1,0 +1,167 @@
+environment:
+  width: 100
+  height: 100
+obstacles:
+- x: 84
+  y: 82
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 27
+  - 2
+  - 1.5707963267948966
+  bounding_box: null
+- x: 56
+  y: 82
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 27
+  - 2
+  - 1.5707963267948966
+  bounding_box: null
+- x: 28
+  y: 82
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 27
+  - 3
+  - 1.5707963267948966
+  bounding_box: null
+- x: 70
+  y: 65
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 30
+  - 2
+  - 1.5707963267948966
+  bounding_box: null
+- x: 43
+  y: 65
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 30
+  - 2
+  - 1.5707963267948966
+  bounding_box: null
+- x: 15
+  y: 65
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 30
+  - 2
+  - 1.5707963267948966
+  bounding_box: null
+- x: 83
+  y: 43
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 24
+  - 3
+  - 1.5707963267948966
+  bounding_box: null
+- x: 56
+  y: 43
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 24
+  - 2
+  - 1.5707963267948966
+  bounding_box: null
+- x: 29
+  y: 43
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 24
+  - 2
+  - 1.5707963267948966
+  bounding_box: null
+- x: 14
+  y: 24
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 26
+  - 3
+  - 1.5707963267948966
+  bounding_box: null
+- x: 42
+  y: 23
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 26
+  - 3
+  - 1.5707963267948966
+  bounding_box: null
+- x: 70
+  y: 23
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 28
+  - 2
+  - 1.5707963267948966
+  bounding_box: null
+- x: 84
+  y: 10
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 0
+  shape_params:
+  - 3
+  bounding_box: null
+- x: 56
+  y: 10
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 15
+  - 2
+  - 1.5707963267948966
+  bounding_box: null
+- x: 29
+  y: 10
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 1
+  shape_params:
+  - 15
+  - 2
+  - 1.5707963267948966
+  bounding_box: null

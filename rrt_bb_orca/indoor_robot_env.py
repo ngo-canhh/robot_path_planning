@@ -97,8 +97,8 @@ class IndoorRobotEnv(gym.Env):
             self._load_config(config_path=config_path)
 
         # Action space: [velocity, steering_angle] - Limit velocity slightly
-        self.action_space = spaces.Box(low=np.array([0, -np.pi/3]),
-                                      high=np.array([0.03 * self.width, np.pi/3]), # Max vel 3% of width
+        self.action_space = spaces.Box(low=np.array([0, -np.pi]),
+                                      high=np.array([0.02 * self.width, np.pi]), # Max vel 2% of width
                                       dtype=np.float32)
 
         # Visualization elements

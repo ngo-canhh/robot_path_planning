@@ -9,6 +9,7 @@ from indoor_robot_env import IndoorRobotEnv # Assuming this exists
 from components.obstacle import Obstacle, ObstacleType, StaticObstacle, DynamicObstacle # Import specific types if needed
 from components.shape import Circle, Rectangle, Shape
 # from utils.ray_tracing_algorithm import RayTracingAlgorithm # REMOVED Ray Tracing
+from utils.rrt_connect_planner import RRTConnectPathPlanner
 from utils.rrt_planner import RRTPathPlanner
 # Remove or comment out WaitingRule if ORCA completely replaces its action logic
 # from utils.waiting_rule import WaitingRule
@@ -41,7 +42,7 @@ class IndoorRobotController:
         self.obstacle_identifier = ObstacleIdentifier(env.max_obstacles_in_observation)
         # self.ray_tracer = RayTracingAlgorithm(self.width, self.height, self.robot_radius) # REMOVED Ray Tracing
         # self.waiting_rule = WaitingRule(self.robot_radius) # Keep if needed for detection, disable if ORCA handles all
-        self.path_planner = RRTPathPlanner(self.width, self.height, self.robot_radius)
+        self.path_planner = RRTConnectPathPlanner(self.width, self.height, self.robot_radius)
 
         # Controller parameters (mostly same)
         self.goal_threshold = self.robot_radius
@@ -256,7 +257,7 @@ class IndoorRobotController:
         velocity = self.max_velocity
         max_steer = abs(self.action_space.high[1]) if self.action_space.high[1] > 1e-6 else np.pi
         norm_steer_mag = abs(steering_angle) / max_steer if max_steer > 1e-6 else 0.0
-        steering_vel_factor = max(0.2, np.cos(norm_steer_mag * np.pi / 2)**0.5)
+        steering_vel_factor = max(0.0, np.cos(norm_steer_mag * np.pi / 2)**0.5)
 
         proximity_vel_factor = 1.0
         if min_distance_to_static_obs < self.obstacle_slow_down_distance:
@@ -265,7 +266,7 @@ class IndoorRobotController:
                  proximity_vel_factor = np.clip(min_distance_to_static_obs / inner_slowdown_dist, 0.0, 1.0)
             else:
                  slow_down_ratio = (min_distance_to_static_obs - inner_slowdown_dist) / (self.obstacle_slow_down_distance - inner_slowdown_dist)
-                 proximity_vel_factor = 0.3 + 0.7 * slow_down_ratio 
+                 proximity_vel_factor = 0.5 + 0.5 * slow_down_ratio 
                  proximity_vel_factor = np.clip(proximity_vel_factor, 0.2, 1.0)
 
         velocity = self.max_velocity * steering_vel_factor * proximity_vel_factor
@@ -318,14 +319,16 @@ class IndoorRobotController:
              else: 
                  self.status = "Near Goal (End of Path)" 
                  needs_replan = False 
-        elif self._is_path_invalidated(robot_x, robot_y, perceived_static_obstacles):
+        # elif self._is_path_invalidated(robot_x, robot_y, perceived_static_obstacles):
+        elif self._is_path_invalidated(robot_x, robot_y, self.perceived_obstacles):
               initial_status = "Path invalidated by perceived obstacle"
               needs_replan = True
 
         if needs_replan:
             self.status = initial_status + " - Replanning..."
-            self.map_obstacles = list(self.discovered_static_obstacles)
-            self.path_planner.set_goal(goal_x, goal_y)
+            # self.map_obstacles = list(self.discovered_static_obstacles)
+            self.map_obstacles = list(self.discovered_static_obstacles + perceived_dynamic_obstacles)
+            # self.path_planner.set_goal(goal_x, goal_y)
             new_path, nodes, parents = self.path_planner.plan_path(
                 robot_x, robot_y, goal_x, goal_y, self.map_obstacles, smooth_path=True
             )
@@ -335,6 +338,7 @@ class IndoorRobotController:
                  self.current_rrt_parents = parents
                  self.current_path_target_idx = 0 
                  self.status = "Replanning Successful"
+                #  print(f"Replanning Successful: {self.current_planned_path}")
             else:
                  self.status = "Replanning Failed"
                  self.current_planned_path = None

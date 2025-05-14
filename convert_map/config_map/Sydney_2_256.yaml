@@ -1,9 +1,27 @@
 environment:
-  width: 128
-  height: 128
+  width: 100
+  height: 100
 obstacles:
-- x: 23
-  y: 121
+- x: 17
+  y: 94
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 0
+  shape_params:
+  - 2
+  bounding_box: null
+- x: 6
+  y: 92
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 0
+  shape_params:
+  - 3
+  bounding_box: null
+- x: 63
+  y: 91
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
@@ -11,367 +29,184 @@ obstacles:
   shape_params:
   - 4
   bounding_box: null
-- x: 8
-  y: 119
+- x: 88
+  y: 82
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
-  shape_type: 3
+  shape_type: 0
   shape_params:
-  - -5
-  - -6
-  - -5
-  - 5
-  - -4
-  - 4
-  - -2
-  - 4
-  - -1
-  - 5
-  - 5
-  - 5
-  - 5
   - 3
-  - 6
-  - 2
-  - 7
-  - -1
-  - 4
-  - -3
-  - 2
-  - -3
-  - -1
-  - -5
-  - -3
-  - -5
-  - -4
-  - -6
   bounding_box: null
-- x: 81
-  y: 117
+- x: 47
+  y: 76
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
   shape_type: 3
   shape_params:
-  - -4
-  - -6
-  - -4
-  - -3
-  - -3
-  - -2
-  - -3
-  - 3
-  - -2
-  - 4
-  - -2
-  - 7
-  - 6
-  - 7
-  - 6
-  - 4
-  - 5
-  - 3
-  - 5
-  - -1
-  - 4
-  - -2
-  - 4
   - -7
-  - 0
+  - -4
   - -7
-  - -1
-  - -6
-  bounding_box: null
-- x: 113
-  y: 106
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 3
-  shape_params:
-  - -2
+  - -3
   - -8
   - -2
-  - 6
+  - -8
   - -1
-  - 7
-  - 5
-  - 7
-  - 5
-  - 3
-  - 3
-  - 3
-  - 1
-  - 1
-  - 1
+  - -7
   - 0
-  - 2
-  - -1
-  - 5
-  - -1
-  - 5
-  - -4
-  - 2
-  - -4
-  - 1
+  - -6
+  - 0
   - -5
   - 1
-  - -7
-  - -1
-  - -7
-  bounding_box: null
-- x: 60
-  y: 97
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 3
-  shape_params:
-  - -8
-  - -6
-  - -10
-  - -2
-  - -10
+  - -3
+  - 1
   - 0
-  - -8
-  - 0
-  - 0
+  - 3
+  - 2
+  - 3
+  - 3
   - 4
   - 5
+  - 4
+  - 6
   - 5
   - 8
-  - 7
-  - 11
-  - 7
-  - 11
+  - 5
+  - 8
+  - 2
+  - 6
+  - 0
   - 4
-  - 9
-  - 1
-  - 7
-  - 1
-  - 4
+  - 0
+  - 3
   - -1
   - 2
   - -1
-  bounding_box: null
-- x: 15
-  y: 98
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 3
-  shape_params:
-  - -12
-  - -13
-  - -12
-  - 5
-  - 10
-  - 14
-  - 14
-  - 5
-  - 15
+  - 1
+  - -2
   - -1
-  bounding_box: null
-- x: 99
-  y: 101
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 3
-  shape_params:
-  - -3
-  - -23
-  - -5
-  - -19
+  - -2
   - -4
-  - -12
-  - -7
-  - -8
-  - -5
-  - 23
-  - 8
-  - 23
-  - 6
-  - 14
-  - 6
-  - -6
-  - 10
-  - -16
-  - 7
-  - -20
-  - 2
-  - -20
+  - -4
   bounding_box: null
-- x: 98
-  y: 102
+- x: 12
+  y: 77
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
   shape_type: 3
   shape_params:
-  - 1
-  - -12
-  - 2
-  - -11
-  - 1
-  - -7
-  - 3
-  - -7
-  - 5
-  - -5
-  - 2
-  - -3
-  - 2
-  - -1
-  - 3
-  - 0
-  - 3
-  - 3
-  - 2
-  - 4
-  - 2
-  - 11
-  - 4
-  - 11
-  - 5
-  - 12
-  - 4
-  - 13
-  - 1
-  - 13
-  - 0
-  - 11
-  - -2
-  - 10
-  - -1
-  - 8
-  - -1
-  - -5
-  - -2
-  - -6
-  - -2
-  - -8
-  bounding_box: null
-- x: 81
-  y: 90
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 3
-  shape_params:
-  - 5
-  - -15
-  - 2
-  - -15
-  - 1
-  - -13
-  - 5
-  - -11
-  - 3
-  - -8
-  - -1
   - -9
-  - -7
+  - -10
+  - -9
+  - 3
+  - -4
+  - 6
+  - -2
+  - 6
+  - 1
   - 8
-  - -5
+  - 8
   - 10
-  - -5
-  - 13
+  - 8
+  - 8
+  - 12
   - -1
-  - 13
-  - 4
-  - 10
-  - 4
-  - 5
-  - 3
-  - 4
-  - 4
-  - 2
-  - 3
-  - 0
-  - 5
-  - -7
-  - 7
+  bounding_box: null
+- x: 77
+  y: 78
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 3
+  shape_params:
+  - -2
+  - -17
+  - -4
+  - -13
+  - -3
   - -8
+  - -5
+  - -5
+  - -4
+  - 17
+  - 0
+  - 18
+  - 1
+  - 16
+  - 2
+  - 18
+  - 6
+  - 18
+  - 5
+  - -4
+  - 8
+  - -12
   - 7
   - -14
   bounding_box: null
-- x: 105
+- x: 77
+  y: 80
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 0
+  shape_params:
+  - 3
+  bounding_box: null
+- x: 63
   y: 71
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
   shape_type: 3
   shape_params:
-  - -7
-  - -3
-  - -7
-  - -1
+  - 2
+  - -13
+  - 1
+  - -11
+  - 3
+  - -11
+  - 4
+  - -10
+  - 4
   - -8
-  - 0
+  - 3
   - -7
   - 1
-  - -4
-  - 1
-  - -1
-  - 3
-  - 1
-  - 3
-  - 2
-  - 4
-  - 5
-  - 4
-  - 6
-  - 5
-  - 7
-  - 5
-  - 7
-  - 3
-  - 8
-  - 2
-  - 8
-  - -1
-  - 9
-  - -2
-  - 8
-  - -2
-  - 7
-  - -3
-  - 5
-  - -1
-  - 4
-  - -2
-  - 2
-  - -2
-  - 1
-  - -3
-  - -1
+  - -7
+  - 0
+  - -8
   - -3
   - -2
   - -4
-  - -3
-  - -3
-  - -4
-  - -3
+  - 4
   - -5
-  - -4
+  - 5
+  - -3
+  - 10
+  - -2
+  - 9
+  - 1
+  - 9
+  - 3
+  - 7
+  - 3
+  - 1
+  - 2
+  - 0
+  - 3
+  - -1
+  - 4
   - -6
-  - -4
-  bounding_box: null
-- x: 19
-  y: 54
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 1
-  shape_params:
-  - 31
   - 6
-  - 0.0
+  - -8
+  - 6
+  - -11
   bounding_box: null
-- x: 42
-  y: 54
+- x: 82
+  y: 55
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
@@ -379,258 +214,233 @@ obstacles:
   shape_params:
   - 3
   bounding_box: null
-- x: 51
-  y: 34
+- x: 32
+  y: 42
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
-  shape_type: 3
+  shape_type: 0
   shape_params:
-  - -15
-  - -15
-  - -13
-  - -10
-  - 6
-  - -4
   - 2
-  - -2
-  - 1
-  - 6
-  - -2
-  - 13
-  - -2
-  - 17
-  - 4
-  - 18
-  - 10
-  - 0
-  - 5
-  - -3
-  - 8
-  - -4
-  - 9
-  - -8
   bounding_box: null
-- x: 94
-  y: 35
+- x: 15
+  y: 42
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
   shape_type: 3
   shape_params:
+  - -12
+  - -1
+  - -12
+  - 2
+  - -6
+  - 2
+  - -5
+  - 3
   - 12
-  - -15
+  - 3
+  - 12
+  - -1
+  - 7
+  - -1
+  - 6
   - -2
-  - -19
-  - -3
-  - -16
-  - -2
-  - -13
-  - -4
-  - -12
-  - -12
-  - 16
-  - -6
-  - 18
-  - -2
-  - 16
-  - 0
-  - 17
-  - 4
-  - 16
-  - 11
-  - -7
-  - 10
   - -8
+  - -2
+  - -9
+  - -1
   bounding_box: null
-- x: 94
-  y: 36
+- x: 40
+  y: 26
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
   shape_type: 3
   shape_params:
-  - 5
   - -12
-  - 6
+  - -11
   - -10
+  - -7
+  - 3
+  - -3
+  - 1
+  - 0
+  - -2
+  - 12
+  - -1
+  - 14
+  - 3
+  - 14
+  - 5
+  - 6
+  - 7
+  - 3
+  - 7
+  - 0
+  - 3
+  - -2
+  - 6
+  - -3
+  - 6
+  - -6
+  bounding_box: null
+- x: 73
+  y: 27
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 3
+  shape_params:
+  - 10
+  - -11
+  - 2
+  - -14
+  - -1
+  - -14
+  - -2
+  - -12
+  - -1
+  - -10
+  - -3
+  - -8
+  - -4
+  - -2
+  - -6
+  - 2
+  - -6
+  - 6
+  - -9
+  - 13
+  - -5
+  - 14
+  - 2
+  - 13
+  - 3
+  - 14
+  bounding_box: null
+- x: 73
+  y: 27
+  dynamic_flag: 0
+  vel_x: 0.0
+  vel_y: 0.0
+  shape_type: 3
+  shape_params:
   - 4
+  - -9
+  - 5
+  - -8
+  - 5
   - -6
   - 4
+  - -5
+  - 4
   - -3
-  - 2
+  - 3
+  - -2
+  - 3
   - 1
+  - 2
+  - 2
   - 2
   - 4
   - 1
   - 5
+  - 1
+  - 8
   - 0
-  - 10
+  - 9
   - -2
-  - 11
-  - -5
   - 9
   - -3
-  - 5
-  - -2
-  - -2
-  - -1
-  - -4
-  - 1
-  - -5
-  - 3
-  - -11
-  bounding_box: null
-- x: 96
-  y: 24
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 0
-  shape_params:
-  - 1
-  bounding_box: null
-- x: 93
-  y: 23
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 0
-  shape_params:
-  - 1
-  bounding_box: null
-- x: 74
-  y: 32
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 3
-  shape_params:
-  - -1
-  - -22
-  - -11
-  - 21
-  - -8
-  - 22
-  - -4
-  - 5
-  - 1
-  - -2
-  - -1
-  - -4
-  - 1
-  - -14
-  - 7
-  - -14
-  - -4
-  - 22
-  - 1
-  - 25
-  - 13
-  - -18
-  bounding_box: null
-- x: 83
-  y: 20
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 0
-  shape_params:
-  - 1
-  bounding_box: null
-- x: 48
-  y: 10
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 3
-  shape_params:
-  - -20
-  - -7
-  - -21
+  - 8
   - -3
-  - -17
-  - 2
-  - 17
-  - 11
-  - 18
-  - 6
-  - 16
   - 5
-  - 19
+  - -2
   - 4
-  - 20
-  - 1
-  - 19
   - -2
   - 2
-  - -7
+  - -1
+  - 1
+  - -1
+  - -2
+  - 0
+  - -3
+  - 1
+  - -3
+  - 1
+  - -4
+  - 2
+  - -5
+  - 2
+  - -8
+  - 3
+  - -9
   bounding_box: null
-- x: 62
-  y: 14
+- x: 58
+  y: 25
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
-  shape_type: 0
+  shape_type: 3
   shape_params:
+  - -1
+  - -17
+  - -9
+  - 16
+  - -6
+  - 17
   - 1
+  - -11
+  - 6
+  - -11
+  - -3
+  - 18
+  - 0
+  - 19
+  - 10
+  - -14
   bounding_box: null
-- x: 59
-  y: 13
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 0
-  shape_params:
-  - 1
-  bounding_box: null
-- x: 56
-  y: 12
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 0
-  shape_params:
-  - 1
-  bounding_box: null
-- x: 53
-  y: 11
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 0
-  shape_params:
-  - 1
-  bounding_box: null
-- x: 50
-  y: 10
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 0
-  shape_params:
-  - 1
-  bounding_box: null
-- x: 46
-  y: 9
-  dynamic_flag: 0
-  vel_x: 0.0
-  vel_y: 0.0
-  shape_type: 0
-  shape_params:
-  - 1
-  bounding_box: null
-- x: 43
+- x: 38
   y: 8
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0
-  shape_type: 0
+  shape_type: 3
   shape_params:
+  - -17
+  - -3
+  - -14
   - 1
+  - -5
+  - 3
+  - -1
+  - 5
+  - 6
+  - 6
+  - 10
+  - 8
+  - 13
+  - 7
+  - 13
+  - 4
+  - 15
+  - 0
+  - 14
+  - -2
+  - 8
+  - -3
+  - 4
+  - -5
+  - -13
+  - -5
+  - -14
+  - -4
+  - -16
+  - -5
   bounding_box: null
-- x: 6
-  y: 3
+- x: 49
+  y: 11
   dynamic_flag: 0
   vel_x: 0.0
   vel_y: 0.0

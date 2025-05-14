@@ -307,8 +307,8 @@ if __name__ == "__main__":
         rectangle_area_threshold=60,  # Ngưỡng cho HCN/Tròn nhỏ
         circle_area_threshold=60,
         circle_vertex_threshold=3,
-        epsilon_factor=0.009,         # Giảm nhẹ epsilon có thể giữ lại nhiều chi tiết hơn
-        rectangularity_threshold=0.9 # <<-- TUNE THIS VALUE (0.9 to 0.98 typical)
+        epsilon_factor=0.0089,         # Giảm nhẹ epsilon có thể giữ lại nhiều chi tiết hơn
+        rectangularity_threshold=0.94 # <<-- TUNE THIS VALUE (0.9 to 0.98 typical)
                                       #      Higher = stricter rectangle requirement
     )
 
