@@ -10,6 +10,7 @@ from components.shape import Shape, Circle, Rectangle, Triangle, Polygon
 from components.obstacle import Obstacle, StaticObstacle, DynamicObstacle, ObstacleType
 import copy
 from collections.abc import Iterable
+from utils.oracle_path_planner import OraclePathPlanner  # Import the Oracle Path Planner
 
 
 
@@ -33,7 +34,9 @@ class IndoorRobotEnv(gym.Env):
             sensor_range=150, 
             render_mode='rgb_array', 
             obs_chance_dynamic=0.3,
-            config_path=None
+            config_path=None,
+            metrics_callback=None,
+            random_obstacles=False
             ):
         super(IndoorRobotEnv, self).__init__()
 
@@ -47,11 +50,13 @@ class IndoorRobotEnv(gym.Env):
         self.dt = 0.5
         self.obs_chance_dynamic = obs_chance_dynamic # Probability of dynamic obstacle
         self.min_start_goal_dist = 350
+        self.metrics_callback = metrics_callback
 
         self.robot_x = None
         self.robot_y = None
         self.robot_orientation = None
         self.robot_velocity = 0
+        self.prev_robot_velocity = 0  # To calculate acceleration
         self.start = start
         self.goal = goal
         self.start_x = None
@@ -59,11 +64,28 @@ class IndoorRobotEnv(gym.Env):
         self.goal_x = None
         self.goal_y = None
 
+        # Metrics tracking - simplified according to the paper's formulas
+        self.metrics = {
+            'path_length': 0.0,        # Length(P) = Sum of Euclidean distances between consecutive points
+            'path_angles': [],         # Stores angles between consecutive path segments
+            'path_smoothness': 0.0,    # Smoothness(P) = (1/N) * Sum of angles between segments
+            'success': 0,              # Binary: 1 for success, 0 for failure
+            'oracle_shortest_path': 0.0,  # l = Oracle shortest path length
+            'oracle_smoothest_path': 0.0,  # s = Oracle smoothest path smoothness
+            'spl': 0.0,                # SPL(P) = S * (l / max(l, Length(P)))
+            'sps': 0.0,                # SPS(P) = S * (s / max(s, Smoothness(P)))
+        }
+        
+        # Default values for oracle metrics - these should be replaced with actual computations
+        # or passed from external path planning algorithms
+        self.oracle_shortest_path_length = 0.0
+        self.oracle_smoothest_path_smoothness = 0.0
+
         self.vanilla_obstacles = [] # List of Obstacle objects load from config
         self.obstacles = [] # List of Obstacle objects (ground truth)
 
         # Observation space: [robot_state..., sensed_obstacle_info...]
-        self.max_obstacles_in_observation = 10 # Max obstacles reported
+        self.max_obstacles_in_observation = 100 # Max obstacles reported
         # obs_len = self.OBS_ROBOT_STATE_SIZE + self.max_obstacles_in_observation * self.OBS_OBSTACLE_DATA_SIZE
 
         # # Define bounds - Use large enough bounds for shape parameters and velocities
@@ -96,9 +118,11 @@ class IndoorRobotEnv(gym.Env):
         if config_path is not None:
             self._load_config(config_path=config_path)
 
+        self.random_obstacles = random_obstacles
+
         # Action space: [velocity, steering_angle] - Limit velocity slightly
-        self.action_space = spaces.Box(low=np.array([0, -np.pi]),
-                                      high=np.array([0.02 * self.width, np.pi]), # Max vel 2% of width
+        self.action_space = spaces.Box(low=np.array([0, -np.pi * 1]),
+                                      high=np.array([0.02 * self.width, np.pi * 1]), # Max vel 2% of width
                                       dtype=np.float32)
 
         # Visualization elements
@@ -114,7 +138,15 @@ class IndoorRobotEnv(gym.Env):
         self.planned_path_line = None
         self.direction_arrow = None
         self.path_line = None
+        self.oracle_path_line = None
         self.sensor_circle = None
+        
+        # Oracle path storage
+        self.oracle_raw_path = None
+        self.oracle_smoothed_path = None
+
+        # Reset environment
+        self.reset()
 
     def _load_config(self, config_path):
         """
@@ -193,6 +225,15 @@ class IndoorRobotEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = 0
+        
+        # Reset metrics for new episode
+        self.metrics['path_length'] = 0.0
+        self.metrics['path_angles'] = []
+        self.metrics['path_smoothness'] = 0.0
+        self.metrics['success'] = 0
+        self.metrics['spl'] = 0.0
+        self.metrics['sps'] = 0.0
+        self.prev_robot_velocity = 0
 
         margin = self.robot_radius + 10
         if self.start is None:
@@ -226,7 +267,8 @@ class IndoorRobotEnv(gym.Env):
         else:
             self.goal_x, self.goal_y = self.goal
         
-        if len(self.vanilla_obstacles) == 0:
+        # Generate random obstacles or use the ones provided
+        if self.random_obstacles:
             # Generate random obstacles (ground truth)
             self.obstacles = []
             num_obstacles = self.np_random.integers(5, self.max_obstacles_in_observation + 1)
@@ -312,6 +354,9 @@ class IndoorRobotEnv(gym.Env):
                 self.obstacles.append(copy.deepcopy(obs)) # Deep copy to avoid shared references
 
         self.path = [(self.robot_x, self.robot_y)]
+        
+        # Calculate oracle path metrics using A* planner
+        self._calculate_oracle_path_metrics()
 
         observation = self._get_observation()
         info = self._get_info()
@@ -329,6 +374,7 @@ class IndoorRobotEnv(gym.Env):
              if self.direction_arrow: self.direction_arrow.remove()
              if self.path_line: self.path_line.set_data([], [])
              if self.planned_path_line: self.planned_path_line.set_data([], [])
+             if hasattr(self, 'oracle_path_line') and self.oracle_path_line: self.oracle_path_line.set_data([], [])
              if self.sensor_circle: self.sensor_circle.remove()
              for line in self.ray_lines: line.remove()
              self.ray_lines = []
@@ -345,6 +391,44 @@ class IndoorRobotEnv(gym.Env):
              self.sensor_circle = None
 
         return observation, info
+        
+    def _calculate_oracle_path_metrics(self):
+        """
+        Calculate oracle path metrics using A* path planning with grid decomposition.
+        This sets the oracle_shortest_path and oracle_smoothest_path values in the metrics.
+        """
+        # Create Oracle Path Planner
+        planner = OraclePathPlanner(self.width, self.height, self.robot_radius)
+        
+        # Plan path from start to goal
+        start = (self.start_x, self.start_y)
+        goal = (self.goal_x, self.goal_y)
+        
+        # Copy obstacles for planning (treating dynamic obstacles as static)
+        planning_obstacles = []
+        for obs in self.obstacles:
+            if isinstance(obs, DynamicObstacle):
+                # Convert to static obstacle
+                static_obs = StaticObstacle(obs.x, obs.y, obs.shape)
+                planning_obstacles.append(static_obs)
+            else:
+                planning_obstacles.append(obs)
+        
+        # Plan path
+        raw_path, smoothed_path, path_length, path_smoothness = planner.plan_path(start, goal, planning_obstacles)
+        
+        # Store oracle paths for visualization
+        self.oracle_raw_path = raw_path
+        self.oracle_smoothed_path = smoothed_path
+        
+        # Set oracle metrics
+        if smoothed_path is not None:
+            self.metrics['oracle_shortest_path'] = path_length
+            self.metrics['oracle_smoothest_path'] = path_smoothness
+        else:
+            # If no path found, use straight line distance as fallback
+            self.metrics['oracle_shortest_path'] = np.sqrt((self.goal_x - self.start_x)**2 + (self.goal_y - self.start_y)**2)
+            self.metrics['oracle_smoothest_path'] = 0.0  # Perfect smoothness as fallback
 
     def _get_observation(self):
         # Base observation: robot state and goal state
@@ -376,13 +460,18 @@ class IndoorRobotEnv(gym.Env):
         current_dist_to_goal = np.sqrt((self.robot_x - self.goal_x)**2 + (self.robot_y - self.goal_y)**2)
         return {
             "distance_to_goal": current_dist_to_goal,
-            "ground_truth_obstacles": self.obstacles # Pass the actual Obstacle objects
+            "ground_truth_obstacles": self.obstacles, # Pass the actual Obstacle objects
+            "metrics": self.metrics  # Add metrics to info
         }
 
 
     def step(self, action):
         self.current_step += 1
         prev_distance = np.sqrt((self.robot_x - self.goal_x)**2 + (self.robot_y - self.goal_y)**2)
+
+        # Store previous position for path length calculation
+        prev_x, prev_y = self.robot_x, self.robot_y
+        prev_velocity = self.robot_velocity
 
         velocity, steering_angle = action
         velocity = np.clip(velocity, self.action_space.low[0], self.action_space.high[0])
@@ -420,7 +509,6 @@ class IndoorRobotEnv(gym.Env):
             if obstacle.check_collision(new_x, new_y, self.robot_radius):
                 collision = True
                 colliding_obs_type = type(obstacle.shape).__name__
-                # print(f"Collision with {colliding_obs_type} at ({obstacle.x:.1f}, {obstacle.y:.1f})")
                 break
 
         if collision:
@@ -436,11 +524,47 @@ class IndoorRobotEnv(gym.Env):
         self.robot_y = new_y
         self.path.append((self.robot_x, self.robot_y))
 
+        # Update metrics
+        # Calculate path segment length - Equation (1) and (2): d(pi, pi+1)
+        segment_length = np.sqrt((new_x - prev_x)**2 + (new_y - prev_y)**2)
+        self.metrics['path_length'] += segment_length
+
+        # Calculate angle for path smoothness (when we have at least 3 points)
+        # Formula from Equation (3): angle(pi, pj, pk) = arccos((pi→pj · pj→pk) / (d(pi,pj) · d(pj,pk)))
+        if len(self.path) >= 3:
+            # Instead of using consecutive points, use a window approach to better capture sharp turns
+            window_size = max(3, min(10, len(self.path) // 5))  # Adaptive window size
+            
+            # Take three points with window spacing
+            if len(self.path) >= 2 * window_size + 1:
+                pi = self.path[-2 * window_size - 1]  # Further back point
+                pj = self.path[-window_size - 1]      # Middle point
+                pk = self.path[-1]                    # Current point
+                
+                # Calculate vectors pi→pj and pj→pk
+                vec_pi_pj = np.array([pj[0] - pi[0], pj[1] - pi[1]])  # pi → pj
+                vec_pj_pk = np.array([pk[0] - pj[0], pk[1] - pj[1]])  # pj → pk
+                
+                # Calculate magnitudes (distances)
+                d_pi_pj = np.sqrt(np.sum(vec_pi_pj**2))  # d(pi, pj)
+                d_pj_pk = np.sqrt(np.sum(vec_pj_pk**2))  # d(pj, pk)
+                
+                if d_pi_pj > 1e-6 and d_pj_pk > 1e-6:  # Avoid division by zero
+                    # Calculate dot product for angle
+                    dot_product = np.dot(vec_pi_pj, vec_pj_pk) / (d_pi_pj * d_pj_pk)
+                    dot_product = np.clip(dot_product, -1.0, 1.0)  # Ensure within valid range
+                    angle = np.arccos(dot_product)
+                    self.metrics['path_angles'].append(angle)
+                    
+                    # Update smoothness using Equation (4): smoothness(P) = (1/N) * Sum(angles)
+                    if self.metrics['path_angles']:
+                        # N is the number of interior points (angles calculated)
+                        self.metrics['path_smoothness'] = np.mean(self.metrics['path_angles'])
+        
         # Update dynamic obstacles (ground truth)
         bounds = (0, 0, self.width, self.height)
         for obstacle in self.obstacles:
              obstacle.update(dt=dt, bounds=bounds) # Pass bounds for bouncing
-
 
         # --- Calculate Reward and Termination/Truncation ---
         distance_to_goal = np.sqrt((self.robot_x - self.goal_x)**2 + (self.robot_y - self.goal_y)**2)
@@ -450,6 +574,24 @@ class IndoorRobotEnv(gym.Env):
             reward = 200
             terminated = True
             info['status'] = 'goal_reached'
+            # Update success metric (S in the equations)
+            self.metrics['success'] = 1
+            
+            # Calculate SPL using Equation (5): SPL(P) = S * (l / max(l, length(P)))
+            if self.metrics['oracle_shortest_path'] > 0:
+                self.metrics['spl'] = self.metrics['success'] * (
+                    self.metrics['oracle_shortest_path'] / 
+                    max(self.metrics['oracle_shortest_path'], self.metrics['path_length'])
+                )
+            
+            # Calculate SPS using Equation (6): SPS(P) = S * (s / max(s, smoothness(P)))
+            if self.metrics['path_angles']:
+                # Use oracle_smoothest_path as our reference value (s)
+                s = self.metrics['oracle_smoothest_path']
+                self.metrics['sps'] = self.metrics['success'] * (
+                    s / max(s, self.metrics['path_smoothness'])
+                )
+            
         else:
             reward_dist = prev_distance - distance_to_goal
             reward_time = -0.5
@@ -460,9 +602,16 @@ class IndoorRobotEnv(gym.Env):
                 reward -= 50
                 info['status'] = 'max_steps_reached'
 
+        # Store previous velocity for next acceleration calculation
+        self.prev_robot_velocity = self.robot_velocity
 
         observation = self._get_observation()
         info.update(self._get_info())
+
+        # Call metrics callback if provided
+        if terminated or truncated:
+            if self.metrics_callback:
+                self.metrics_callback(self.metrics)
 
         return observation, reward, terminated, truncated, info
 
@@ -513,9 +662,9 @@ class IndoorRobotEnv(gym.Env):
         # Create new arrow patch each time
         self.direction_arrow = self.ax.arrow(self.robot_x, self.robot_y,
                                             end_x - self.robot_x, end_y - self.robot_y,
-                                            head_width=max(self.robot_radius * 0.4, 3),
-                                            head_length=max(self.robot_radius * 0.6, 5),
-                                            fc='red', ec='red', length_includes_head=True, zorder=6)
+                                            head_width=max(self.robot_radius * 0.4, 1),
+                                            head_length=max(self.robot_radius * 0.6, 1),
+                                            fc='red', ec='red', length_includes_head=False, zorder=2)
 
         # Draw Goal
         if self.goal_patch is None:
@@ -550,7 +699,6 @@ class IndoorRobotEnv(gym.Env):
                   self.ax.add_patch(new_patch)
                   self.obstacle_patches[i] = new_patch # Store the new patch handle
 
-
         # Draw Path History
         if self.path:
             path_x, path_y = zip(*self.path)
@@ -558,6 +706,22 @@ class IndoorRobotEnv(gym.Env):
                  self.path_line.set_data(path_x, path_y)
             else:
                  self.path_line, = self.ax.plot(path_x, path_y, 'b-', linewidth=1.5, alpha=0.6, label='Robot Path', zorder=2)
+        
+        # Draw Oracle Path (if available)
+        if hasattr(self, 'oracle_smoothed_path') and self.oracle_smoothed_path:
+            oracle_x, oracle_y = zip(*self.oracle_smoothed_path)
+            if not hasattr(self, 'oracle_path_line') or self.oracle_path_line is None:
+                self.oracle_path_line, = self.ax.plot(oracle_x, oracle_y, 'g--', linewidth=2, alpha=0.5, label='Oracle Path', zorder=3)
+            else:
+                self.oracle_path_line.set_data(oracle_x, oracle_y)
+        
+        # Draw Oracle Path (if available)
+        if hasattr(self, 'oracle_smoothed_path') and self.oracle_smoothed_path:
+            oracle_x, oracle_y = zip(*self.oracle_smoothed_path)
+            if not hasattr(self, 'oracle_path_line') or self.oracle_path_line is None:
+                self.oracle_path_line, = self.ax.plot(oracle_x, oracle_y, 'g--', linewidth=2, alpha=0.5, label='Oracle Path', zorder=3)
+            else:
+                self.oracle_path_line.set_data(oracle_x, oracle_y)
 
         # --- Visualization from Controller Info (Optional - RRT/Path) ---
         if controller_info:
@@ -576,7 +740,7 @@ class IndoorRobotEnv(gym.Env):
                  path_points = controller_info['planned_path']
                  if len(path_points) > 1:
                      path_x, path_y = zip(*path_points)
-                     self.planned_path_line, = self.ax.plot(path_x, path_y, 'g--', linewidth=2, alpha=0.7, label='Planned Path', zorder=4)
+                     self.planned_path_line, = self.ax.plot(path_x, path_y, 'r--', linewidth=2, alpha=0.7, label='Planned Path', zorder=4)
 
 
         # Draw Sensor Range
@@ -626,3 +790,41 @@ class IndoorRobotEnv(gym.Env):
             self.direction_arrow = None
             self.path_line = None
             self.sensor_circle = None
+
+    def get_metrics(self):
+        """Return the current metrics dictionary"""
+        return self.metrics
+
+    def get_path_metrics(self):
+        """
+        Returns the key path planning metrics as described in the theoretical formulas.
+        
+        Returns:
+            dict: A dictionary containing the following metrics:
+                - path_length: Total length of the path (Euclidean distance sum)
+                - path_smoothness: Average angle between consecutive path segments
+                - success: Binary variable indicating success (1) or failure (0)
+                - spl: Success weighted by Path Length metric (1 is optimal)
+                - sps: Success weighted by Path Smoothness metric (1 is optimal)
+        """
+        return {
+            'path_length': self.metrics['path_length'],
+            'path_smoothness': self.metrics['path_smoothness'],
+            'success': self.metrics['success'],
+            'spl': self.metrics['spl'],
+            'sps': self.metrics['sps']
+        }
+
+    def set_oracle_metrics(self, oracle_shortest_path=None, oracle_smoothest_path=None):
+        """
+        Set the oracle metrics for better SPL and SPS calculation
+        
+        Args:
+            oracle_shortest_path (float): The optimal shortest path length
+            oracle_smoothest_path (float): The optimal smoothest path value
+        """
+        if oracle_shortest_path is not None:
+            self.metrics['oracle_shortest_path'] = oracle_shortest_path
+        
+        if oracle_smoothest_path is not None:
+            self.metrics['oracle_smoothest_path'] = oracle_smoothest_path

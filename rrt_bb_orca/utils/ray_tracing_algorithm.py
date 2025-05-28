@@ -6,16 +6,17 @@ from components.obstacle import Obstacle
 from components.shape import Shape # Import base Shape class
 
 class RayTracingAlgorithm:
-    def __init__(self, env_width, env_height, robot_radius):
+    def __init__(self, env_width, env_height, robot_radius, sensor_range):
         self.width = env_width
         self.height = env_height
         self.robot_radius = robot_radius # Store robot radius for padding/safety checks
+        self.sensor_range = sensor_range
 
         # Parameters for the ray-based avoidance
-        self.num_avoidance_rays = 15 # Number of rays to cast for finding gaps
+        self.num_avoidance_rays = 21 # Number of rays to cast for finding gaps
         self.avoidance_ray_angle_span = np.pi * 0.8 # Angular range to cast rays (e.g., 144 degrees)
-        self.avoidance_ray_max_dist = 80 # Max distance to check for intersections relevant to avoidance
-        self.safety_distance_ratio = 2.0 # Multiplier for robot radius to ensure clearance
+        self.avoidance_ray_max_dist = self.sensor_range # Max distance to check for intersections relevant to avoidance
+        self.safety_distance_ratio = 0 # Multiplier for robot radius to ensure clearance
 
     def _normalize_angle(self, angle):
         """ Normalizes angle to be within [-pi, pi]. """
@@ -258,58 +259,65 @@ class RayTracingAlgorithm:
         if not gaps:
              # No clear gaps found within the scanned range and distance!
              # This is problematic. Maybe the obstacle is very large or robot is cornered.
-             # Fallback: Try the old tangent method based on closest point?
-             # Or revert to moving directly away from closest point as an emergency?
-             print("Avoidance: No clear gap found by ray casting! Falling back.")
-             # Fallback to moving away from closest point
-             vec_boundary_to_robot = obstacle.shape.get_effective_vector(robot_x, robot_y, obs_x, obs_y)
-             angle_away = np.arctan2(vec_boundary_to_robot[1], vec_boundary_to_robot[0])
+             # FIXED: Make sure we're moving AWAY from the obstacle, not towards it
+             print("Avoidance: No clear gap found by ray casting! Falling back to direct avoidance.")
+             
+             # Get vector from obstacle to robot
+             vec_to_robot = np.array([robot_x - obs_x, robot_y - obs_y])
+             
+             # If we're at the obstacle center, move in the opposite direction of current orientation
+             if np.linalg.norm(vec_to_robot) < 1e-6:
+                 print("Avoidance: At obstacle center! Moving in opposite direction.")
+                 return self._normalize_angle(robot_orientation + np.pi)
+                 
+             # Otherwise move directly away from the obstacle
+             angle_away = np.arctan2(vec_to_robot[1], vec_to_robot[0])
+             print(f"Avoidance: Moving away from obstacle at angle {angle_away:.2f}")
              return self._normalize_angle(angle_away)
 
 
         # Select the best gap (closest midpoint angle to the goal angle)
         gaps.sort(key=lambda x: x[4]) # Sort by goal_angle_diff
         best_gap = gaps[0]
-        # chosen_avoidance_angle = best_gap[2] # Use the midpoint of the best gap
-        start_angle, end_angle, mid_angle, _, _ = best_gap # Giải nén các giá trị cần thiết
+        start_angle, end_angle, mid_angle, _, _ = best_gap 
 
-        chosen_avoidance_angle = mid_angle # Bắt đầu với góc trung điểm
+        chosen_avoidance_angle = mid_angle # Start with the midpoint angle
         try:
-            # Tìm khoảng cách của các tia biên thực tế từ ray_results
-            # Lưu ý: Cần xử lý trường hợp góc có thể không khớp chính xác do linspace
+            # Find the distance of boundary rays from ray_results
+            # Note: Need to handle case where angles might not match exactly due to linspace
             start_entry = min(ray_results, key=lambda x: abs(self._normalize_angle(x[0] - start_angle)))
             end_entry = min(ray_results, key=lambda x: abs(self._normalize_angle(x[0] - end_angle)))
             start_dist = start_entry[1]
             end_dist = end_entry[1]
 
-            critical_distance = self.robot_radius * 3.0 # Ngưỡng khoảng cách (Cần tinh chỉnh)
-            max_bias_angle = np.deg2rad(20.0) # Góc lệch tối đa (Cần tinh chỉnh)
+            critical_distance = self.robot_radius * 3.0 # Distance threshold (Needs tuning)
+            max_bias_angle = np.deg2rad(20.0) # Maximum bias angle (Needs tuning)
             bias_angle = 0.0
 
-            # Tính toán độ lệch nếu tia biên quá gần
+            # Calculate bias if boundary rays are too close
             if start_dist < critical_distance:
-                bias_factor = (1.0 - np.clip(start_dist / critical_distance, 0, 1))**2 # Bình phương để lệch mạnh hơn khi rất gần
-                bias_angle += bias_factor * max_bias_angle # Lệch ra khỏi start_angle (tăng góc)
+                bias_factor = (1.0 - np.clip(start_dist / critical_distance, 0, 1))**2 # Square for stronger bias when very close
+                bias_angle += bias_factor * max_bias_angle # Bias away from start_angle (increase angle)
 
             if end_dist < critical_distance:
-                bias_factor = (1.0 - np.clip(end_dist / critical_distance, 0, 1))**2 # Bình phương để lệch mạnh hơn khi rất gần
-                bias_angle -= bias_factor * max_bias_angle # Lệch ra khỏi end_angle (giảm góc)
+                bias_factor = (1.0 - np.clip(end_dist / critical_distance, 0, 1))**2 # Square for stronger bias when very close
+                bias_angle -= bias_factor * max_bias_angle # Bias away from end_angle (decrease angle)
 
             chosen_avoidance_angle = self._normalize_angle(mid_angle + bias_angle)
 
-            # (Tùy chọn) Đảm bảo góc cuối cùng vẫn nằm trong khoảng trống ban đầu một cách hợp lý
-            # Ví dụ: Kiểm tra xem nó có lệch quá nửa khoảng trống không
+            # (Optional) Ensure final angle is still reasonably within the original gap
+            # For example: check if it deviates too much from the middle of the gap
             angle_diff_gap = abs(self._normalize_angle(end_angle - start_angle))
             angle_diff_final = abs(self._normalize_angle(chosen_avoidance_angle - mid_angle))
-            if angle_diff_final > angle_diff_gap * 0.6: # Nếu lệch quá nhiều, có thể giới hạn lại
-                 # Giới hạn bias để không vượt quá xa trung điểm, ví dụ giới hạn ở 50% khoảng cách tới biên
-                 # Hoặc đơn giản là chấp nhận kết quả nếu tính toán bias hợp lý
-                 pass # Hiện tại chấp nhận kết quả bias
+            if angle_diff_final > angle_diff_gap * 0.6: # If deviation is too large, may limit it
+                 # Limit bias to not go too far from midpoint, e.g., limit to 50% distance to boundary
+                 # Or simply accept the result if the bias calculation is reasonable
+                 pass # Currently accept the result of bias
 
 
         except Exception as e:
             print(f"Error during avoidance angle biasing: {e}")
-            # Nếu có lỗi, quay lại dùng góc trung điểm ban đầu
+            # If error occurs, fall back to using the original midpoint angle
             chosen_avoidance_angle = mid_angle
 
         # Optional: Debug print

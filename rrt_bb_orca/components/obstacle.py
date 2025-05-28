@@ -143,8 +143,11 @@ class DynamicObstacle(Obstacle):
             velocity (float): The speed of the obstacle.
             direction (np.ndarray): The initial direction vector (will be normalized).
             bounding_box (tuple, optional): Defines a rectangular region for movement
-                                           (min_x, min_y, max_x, max_y). If None, uses
-                                           global bounds from the update method. Defaults to None.
+                                           as offsets relative to the initial position (x,y):
+                                           (min_x_offset, min_y_offset, max_x_offset, max_y_offset).
+                                           If None, uses global bounds from the update method. 
+                                           For example, (-10, -10, 10, 10) creates a 20x20 square 
+                                           centered on the initial position. Defaults to None.
         """
         super().__init__(x, y, shape, ObstacleType.DYNAMIC, velocity, direction)
         self.bounding_box = bounding_box # Store the specific bounding box
@@ -154,6 +157,18 @@ class DynamicObstacle(Obstacle):
         dynamic_flag = 1.0 if self.type == ObstacleType.DYNAMIC else 0.0
         vel_x = self.velocity * self.direction[0] if self.type == ObstacleType.DYNAMIC else 0.0
         vel_y = self.velocity * self.direction[1] if self.type == ObstacleType.DYNAMIC else 0.0
+        
+        # If we have a bounding box, convert to absolute for observation
+        abs_bounding_box = None
+        if self.bounding_box is not None:
+            min_x_offset, min_y_offset, max_x_offset, max_y_offset = self.bounding_box
+            abs_bounding_box = (
+                self.initial_x + min_x_offset,
+                self.initial_y + min_y_offset,
+                self.initial_x + max_x_offset,
+                self.initial_y + max_y_offset
+            )
+            
         return {
             'x': self.x,
             'y': self.y,
@@ -162,20 +177,27 @@ class DynamicObstacle(Obstacle):
             'dynamic_flag': dynamic_flag,
             'vel_x': vel_x,
             'vel_y': vel_y,
-            'bounding_box': self.bounding_box
+            'bounding_box': abs_bounding_box
         }
 
     def update(self, dt: float = 1.0, bounds: tuple = (0, 0, 500, 500)):
         """
         Updates position and handles boundary bouncing using either its specific
-        bounding_box or the global bounds.
+        bounding_box (relative to initial position) or the global bounds.
         """
         if self.type != ObstacleType.DYNAMIC or self.velocity < 1e-6:
             return
 
         # Determine which bounds to use
         if self.bounding_box is not None:
-            active_bounds = self.bounding_box
+            # Convert relative bounding box to absolute coordinates based on initial position
+            min_x_offset, min_y_offset, max_x_offset, max_y_offset = self.bounding_box
+            active_bounds = (
+                self.initial_x + min_x_offset,
+                self.initial_y + min_y_offset,
+                self.initial_x + max_x_offset,
+                self.initial_y + max_y_offset
+            )
             # print(f"Using obstacle bounds: {active_bounds}") # Debug print
         else:
             active_bounds = bounds # Fallback to global bounds

@@ -21,7 +21,7 @@ obstacles:
   shape_type: 1
   shape_params:
   - 27
-  - 2
+  - 3
   - 1.5707963267948966
   bounding_box: null
 - x: 28
